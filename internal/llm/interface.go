@@ -5,6 +5,7 @@ import "context"
 // Character represents the character configuration loaded from JSON.
 type Character struct {
 	Name            string             `json:"name"`
+	PrePrompt       string             `json:"pre_prompt"`
 	Bio             []string           `json:"bio"`
 	Lore            []string           `json:"lore"`
 	Knowledge       []string           `json:"knowledge"`
