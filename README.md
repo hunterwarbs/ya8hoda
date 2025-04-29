@@ -28,9 +28,10 @@ Create a `.env` file in the project root with the following environment variable
 # Required settings
 TG_BOT_TOKEN=your_telegram_bot_token
 OPENROUTER_API_KEY=your_openrouter_api_key
+OPENROUTER_MODEL=qwen/qwq-32b
+
 
 # Optional settings
-OPENROUTER_MODEL=meta-llama/llama-3-70b-instruct
 MILVUS_HOST=milvus
 MILVUS_PORT=19530
 LOG_LEVEL=info
