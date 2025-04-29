@@ -159,7 +159,7 @@ func (b *Bot) handleCommand(ctx context.Context, message *models.Message) {
 
 	switch command {
 	case "start":
-		text := "👋 Hello! I'm your RAG-enabled Telegram bot. You can ask me questions, and I'll use my vector database to provide informative answers."
+		text := "👋 Hello! I'm Ya8hoda. AMA!"
 		text += "\n\nCommands:"
 		text += "\n/help - Show this help message"
 		text += "\n/reset - Clear your conversation history"
@@ -213,6 +213,26 @@ func (b *Bot) handleCommand(ctx context.Context, message *models.Message) {
 	}
 }
 
+// sendContinuousTypingAction sends the typing action periodically until the done channel is closed
+func (b *Bot) sendContinuousTypingAction(ctx context.Context, chatID int64, done chan struct{}) {
+	ticker := time.NewTicker(4 * time.Second) // Telegram typing status lasts ~5 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			b.bot.SendChatAction(ctx, &bot.SendChatActionParams{
+				ChatID: chatID,
+				Action: "typing",
+			})
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // handleTextMessage processes a text message.
 func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 	chatID := message.Chat.ID
@@ -243,15 +263,21 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	// Send "typing" action
+	// Send initial "typing" action
 	b.bot.SendChatAction(ctx, &bot.SendChatActionParams{
 		ChatID: chatID,
 		Action: "typing",
 	})
 
+	// Start continuous typing indicator
+	typingDone := make(chan struct{})
+	go b.sendContinuousTypingAction(ctx, chatID, typingDone)
+
 	// Get a response from the LLM
 	response, err := b.llm.ChatCompletion(ctx, session, toolSpecs)
+
 	if err != nil {
+		close(typingDone) // Stop typing indicator
 		log.Printf("Error getting chat completion: %v", err)
 		b.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    chatID,
@@ -274,6 +300,7 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 			// Execute the tool call
 			result, err := b.toolRouter.ExecuteToolCall(ctx, userID, &toolCall)
 			if err != nil {
+				close(typingDone) // Stop typing indicator
 				log.Printf("Error executing tool call: %v", err)
 				b.bot.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID: chatID,
@@ -298,6 +325,7 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 		// Get a new response with the tool results
 		response, err = b.llm.ChatCompletion(ctx, session, nil)
 		if err != nil {
+			close(typingDone) // Stop typing indicator
 			log.Printf("Error getting follow-up chat completion: %v", err)
 			b.bot.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: chatID,
@@ -312,6 +340,9 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 	session = append(session, response.Message)
 	b.sessions[chatID] = session
 	b.mutex.Unlock()
+
+	// Stop the typing indicator
+	close(typingDone)
 
 	// Debug output
 	logger.Debug("Sending Telegram message: %s", response.Message.Content)
@@ -329,11 +360,15 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 	chatID := message.Chat.ID
 	userID := message.From.ID
 
-	// Send "typing" action
+	// Initial "typing" action
 	b.bot.SendChatAction(ctx, &bot.SendChatActionParams{
 		ChatID: chatID,
 		Action: "typing",
 	})
+
+	// Start continuous typing indicator
+	typingDone := make(chan struct{})
+	go b.sendContinuousTypingAction(ctx, chatID, typingDone)
 
 	// Get the file ID of the largest photo (last one in the array)
 	photo := message.Photo[len(message.Photo)-1]
@@ -344,6 +379,7 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 		FileID: fileID,
 	})
 	if err != nil {
+		close(typingDone) // Stop typing indicator
 		log.Printf("Error getting file info: %v", err)
 		b.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
@@ -356,6 +392,7 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 	fileURL := b.bot.FileDownloadLink(fileObj)
 	localPath, err := b.downloadImage(fileURL, fileID)
 	if err != nil {
+		close(typingDone) // Stop typing indicator
 		log.Printf("Error downloading image: %v", err)
 		b.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
@@ -382,6 +419,7 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 	// Load tool specifications from JSON files
 	toolSpecs, err := loadToolSpecs()
 	if err != nil {
+		close(typingDone) // Stop typing indicator
 		log.Printf("Error loading tool specs: %v", err)
 		b.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
@@ -393,6 +431,7 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 	// Get a response from the LLM
 	response, err := b.llm.ChatCompletion(ctx, session, toolSpecs)
 	if err != nil {
+		close(typingDone) // Stop typing indicator
 		log.Printf("Error getting chat completion for image: %v", err)
 		b.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
@@ -414,6 +453,7 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 			// Execute the tool call
 			result, err := b.toolRouter.ExecuteToolCall(ctx, userID, &toolCall)
 			if err != nil {
+				close(typingDone) // Stop typing indicator
 				log.Printf("Error executing tool call: %v", err)
 				b.bot.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID: chatID,
@@ -438,6 +478,7 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 		// Get a new response with the tool results
 		response, err = b.llm.ChatCompletion(ctx, session, nil)
 		if err != nil {
+			close(typingDone) // Stop typing indicator
 			log.Printf("Error getting follow-up chat completion: %v", err)
 			b.bot.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: chatID,
@@ -452,6 +493,9 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 	session = append(session, response.Message)
 	b.sessions[chatID] = session
 	b.mutex.Unlock()
+
+	// Stop the typing indicator
+	close(typingDone)
 
 	// Debug output
 	logger.Debug("Sending Telegram message: %s", response.Message.Content)

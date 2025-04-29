@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 	"time"
 
 	"github.com/hunterwarburton/ya8hoda/internal/auth"
-	"github.com/hunterwarburton/ya8hoda/internal/embed"
+	embedder "github.com/hunterwarburton/ya8hoda/internal/embed"
 	"github.com/hunterwarburton/ya8hoda/internal/llm"
 	"github.com/hunterwarburton/ya8hoda/internal/logger"
 	"github.com/hunterwarburton/ya8hoda/internal/rag"
@@ -21,6 +22,9 @@ import (
 	"github.com/hunterwarburton/ya8hoda/internal/tools"
 	"github.com/joho/godotenv"
 )
+
+//go:embed character.json
+var embeddedFS embed.FS
 
 // Config represents the application configuration.
 type Config struct {
@@ -96,6 +100,22 @@ func getEnvWithDefault(key, defaultValue string) string {
 
 // loadCharacter loads the character configuration from a JSON file.
 func loadCharacter(filePath string) (*llm.Character, error) {
+	// First, try to load from the embedded data
+	if filePath == "cmd/bot/character.json" || filePath == "" {
+		logger.Info("Using embedded character configuration")
+		data, err := embeddedFS.ReadFile("character.json")
+		if err != nil {
+			return nil, err
+		}
+
+		var character llm.Character
+		if err := json.Unmarshal(data, &character); err != nil {
+			return nil, err
+		}
+		return &character, nil
+	}
+
+	// If a different file is specified, try to load it from disk
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -177,7 +197,7 @@ func main() {
 	}
 
 	// Initialize embedding service (integrated with Milvus BGE-M3)
-	embedService := embed.NewBGEEmbedder(ragService)
+	embedService := embedder.NewBGEEmbedder(ragService)
 
 	// Initialize OpenRouter LLM service with character configuration
 	llmService := llm.NewOpenRouterService(config.OpenRouterAPIKey, config.OpenRouterModel)

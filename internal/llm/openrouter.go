@@ -114,9 +114,14 @@ func (s *OpenRouterService) generateSystemPrompt() string {
 	}
 
 	var builder strings.Builder
+	// Add pre-prompt for consistent behavior
+	builder.WriteString("Please don't be cringe, just write like a normal person would at the proper length depending on the context. Don't overshare! Just respond using your background context only if the user asks about it, don't overload them with information. You're opinionated and have your own personality and life going on, don't be overly sycophantic to the user, but don't be too edgy either.")
 
 	// Add character name and basic identity
 	builder.WriteString(fmt.Sprintf("You are %s. ", s.character.Name))
+
+	builder.WriteString("The following is your background to pull from when relevant:")
+	builder.WriteString("\n\n")
 
 	// Add bio information
 	if len(s.character.Bio) > 0 {
@@ -165,10 +170,26 @@ func (s *OpenRouterService) ChatCompletion(ctx context.Context, telegramMessages
 	// Convert telegram messages to openrouter messages
 	messages := convertTelegramMessagesToLLM(telegramMessages)
 
-	// Add system message if character is configured and no system message exists yet
+	// Log the incoming messages to see what we're starting with
+	for i, msg := range messages {
+		logger.Debug("Incoming message[%d]: role=%s, content=%s", i, msg.Role, msg.Content)
+	}
+
+	// Check if there's an existing system message and replace it with our character system message
 	hasSystemMessage := len(messages) > 0 && messages[0].Role == "system"
-	if s.character != nil && !hasSystemMessage {
+	if hasSystemMessage {
+		logger.Debug("Found existing system message: %s", messages[0].Content)
+
+		// Replace the existing system message with our character system message
+		if s.character != nil {
+			systemPrompt := s.generateSystemPrompt()
+			logger.Debug("Replacing system prompt with: %s", systemPrompt)
+			messages[0].Content = systemPrompt
+		}
+	} else if s.character != nil {
+		// No system message exists, add one
 		systemPrompt := s.generateSystemPrompt()
+		logger.Debug("Generated system prompt (raw): %s", systemPrompt)
 		// Prepend the system message
 		systemMessage := Message{
 			Role:    "system",
