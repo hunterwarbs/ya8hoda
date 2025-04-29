@@ -1,0 +1,29 @@
+{
+  "type": "function",
+  "function": {
+    "name": "openrouter.generate_image",
+    "description": "Create an image and return a direct URL",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": { 
+          "type": "string",
+          "description": "The text prompt describing the image to generate" 
+        },
+        "style": { 
+          "type": "string", 
+          "description": "The style of the generated image",
+          "enum": ["photorealistic", "anime", "flat", "artistic", "3d", "sketch", "cartoon"],
+          "default": "photorealistic"
+        },
+        "size": {
+          "type": "string",
+          "description": "The size/resolution of the generated image",
+          "enum": ["512x512", "768x768", "1024x1024", "1024x768", "768x1024"],
+          "default": "1024x1024"
+        }
+      },
+      "required": ["prompt"]
+    }
+  }
+} 
