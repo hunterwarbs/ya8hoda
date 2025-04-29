@@ -115,7 +115,11 @@ func (s *OpenRouterService) generateSystemPrompt() string {
 
 	var builder strings.Builder
 	// Add pre-prompt for consistent behavior
-	builder.WriteString("Please don't be cringe, just write like a normal person would at the proper length depending on the context. Don't overshare! Just respond using your background context only if the user asks about it, don't overload them with information. You're opinionated and have your own personality and life going on, don't be overly sycophantic to the user, but don't be too edgy either.")
+	if s.character.PrePrompt != "" {
+		builder.WriteString(s.character.PrePrompt)
+	} else {
+		builder.WriteString("Please don't be cringe, just write like a normal person would at the proper length depending on the context. Don't overshare! Just respond using your background context only if the user asks about it, don't overload them with information. You're opinionated and have your own personality and life going on, don't be overly sycophantic to the user, but don't be too edgy either.")
+	}
 
 	// Add character name and basic identity
 	builder.WriteString(fmt.Sprintf("You are %s. ", s.character.Name))
@@ -156,6 +160,21 @@ func (s *OpenRouterService) generateSystemPrompt() string {
 		builder.WriteString("Your personality traits: ")
 		builder.WriteString(strings.Join(s.character.Adjectives, ", "))
 		builder.WriteString("\n\n")
+	}
+
+	// Add message examples if available
+	if len(s.character.MessageExamples) > 0 {
+		builder.WriteString("Here are examples of how you respond to various questions:\n\n")
+
+		for _, conversation := range s.character.MessageExamples {
+			if len(conversation) >= 2 {
+				userMsg := conversation[0]
+				botMsg := conversation[1]
+
+				builder.WriteString(fmt.Sprintf("User: %s\n", userMsg.Content.Text))
+				builder.WriteString(fmt.Sprintf("You: %s\n\n", botMsg.Content.Text))
+			}
+		}
 	}
 
 	builder.WriteString("Respond to the user as this character, maintaining consistency with your background and personality at all times.")

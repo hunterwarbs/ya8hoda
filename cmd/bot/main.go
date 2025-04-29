@@ -43,6 +43,7 @@ type Config struct {
 // Character represents the character configuration loaded from JSON.
 type Character struct {
 	Name            string      `json:"name"`
+	PrePrompt       string      `json:"pre_prompt"`
 	Bio             []string    `json:"bio"`
 	Lore            []string    `json:"lore"`
 	Knowledge       []string    `json:"knowledge"`
@@ -250,6 +251,15 @@ func main() {
 // buildSystemPromptFromCharacter creates a system prompt string from a character
 func buildSystemPromptFromCharacter(character *llm.Character) string {
 	var builder strings.Builder
+
+	// Add pre-prompt if available
+	if character.PrePrompt != "" {
+		builder.WriteString(character.PrePrompt)
+		builder.WriteString("\n\n")
+	} else {
+		builder.WriteString("Please don't be cringe, just write like a normal person would at the proper length depending on the context. Don't overshare! Just respond using your background context only if the user asks about it, don't overload them with information. You're opinionated and have your own personality and life going on, don't be overly sycophantic to the user, but don't be too edgy either.")
+		builder.WriteString("\n\n")
+	}
 
 	// Add character name and basic identity
 	builder.WriteString(fmt.Sprintf("You are %s. ", character.Name))
