@@ -1,0 +1,55 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Global Project Rules and Architecture
+
+## Logger Usage
+
+When logging, use the custom logger from `internal/logger`. Prefer service-specific functions (e.g., `logger.TelegramInfo`, `logger.LLMDebug`, `logger.ToolWarn`) when the context clearly relates to a service (Telegram, LLM, Tool). Use generic functions (`logger.Info`, `logger.Debug`, `logger.Warn`, `logger.Error`) for general messages. Choose the log level appropriately (Debug, Info, Warn, Error).
+
+## Project Directory Summary
+
+Based on the directory structure, here's a summary of the `ya8hoda` project:
+
+*   **`cmd/bot/`**: Contains the main application entry point (`main.go`) for the bot. Initializes and wires together components from `internal`.
+*   **`data/`**: Holds persistent data for services:
+    *   `etcd/`: For `etcd` (distributed key-value store).
+    *   `milvus/`: For `Milvus` (vector database), suggesting RAG usage.
+    *   `minio/`: For `Minio` (S3-compatible object storage).
+    *   `models/`: Potentially stores ML models.
+    *   `tmp/`: Temporary file storage.
+*   **`deploy/`**: Contains deployment configuration files (currently empty).
+*   **`internal/`**: Core application logic packages:
+    *   `auth/`: User authentication/authorization.
+    *   `core/`: Central business logic/orchestration.
+    *   `embed/`: Vector embedding generation (`tools/models/BAAI/bge-m3`).
+    *   `llm/`: LLM interaction logic.
+    *   `logger/`: Structured logging.
+    *   `rag/`: Retrieval-Augmented Generation logic (using Milvus).
+    *   `telegram/`: Telegram Bot API interaction.
+    *   `tools/`: Integration for specific external tools/APIs.
+*   **`tools/`**: Contains the `BAAI/bge-m3` embedding model.
+*   **`tools-spec/`**: May contain OpenAPI specs or definitions for tools.
+*   **Root Files**: Standard project files (`.env`, `.gitignore`, `docker-compose.yaml`, `Dockerfile`, `go.mod`, `go.sum`, `milvus-standalone.yml`, `README.md`, `standalone_embed.sh`).
+
+## Message Flow Architecture
+
+Probable flow for a user message:
+
+1.  **User Sends Message (Telegram):** User interaction via Telegram.
+2.  **Message Received (`internal/telegram`):** Receives and parses the message from the Telegram API.
+3.  **Authentication (`internal/auth`, Optional):** Verifies user identity/permissions.
+4.  **Logging (`internal/logger`):** Initial log entry (e.g., `logger.TelegramInfo(...)`).
+5.  **Core Processing (`internal/core` / `cmd/bot`):**
+    *   Intent Recognition/Preprocessing.
+    *   **Embedding (`internal/embed`):** Generates vector embedding for the message using `bge-m3`.
+    *   **RAG - Retrieval (`internal/rag`):** Queries Milvus (`data/milvus`) using the embedding for relevant context.
+    *   **LLM Interaction (`internal/llm`):** Sends the message (and retrieved context) to the LLM. May decide to use tools.
+    *   **Tool Execution (`internal/tools`, Optional):** Executes necessary tools and returns results to the LLM.
+    *   **Response Generation (`internal/llm`):** LLM generates the final response.
+6.  **Logging (`internal/logger`):** Logs intermediate steps (e.g., `logger.RAGDebug`, `logger.LLMInfo`).
+7.  **Send Response (`internal/telegram`):** Sends the generated response text back.
+8.  **Message Sent (Telegram):** The `telegram` package sends the response via the Telegram API.
+9.  **Final Logging (`internal/logger`):** Confirms response sent (e.g., `logger.TelegramInfo(...)`).
