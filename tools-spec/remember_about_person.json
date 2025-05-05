@@ -2,29 +2,31 @@
   "type": "function",
   "function": {
     "name": "remember_about_person",
-    "description": "Let me search my memories about what I know about everyone I've met to answer your question. I can filter by name or Telegram ID if I need to, but can also omit those to search across everyone.",
+    "description": "Retrieves stored factual memories about a specific person based on their Telegram ID or name. Use this to recall information previously stored about someone.",
     "parameters": {
       "type": "object",
       "properties": {
-        "query": { 
-          "type": "string", 
-          "description": "The question or topic you want me to recall about the person."
-        },
-        "telegram_id": { 
-          "type": "string", 
-          "description": "The Telegram ID of the person you're asking about. If you don't provide one, I'll search memories across everyone."
-        },
-        "person_name": {
+        "query": {
           "type": "string",
-          "description": "The name of the person you're asking about. Use this to refine the search if the Telegram ID is unknown or ambiguous."
+          "description": "The natural language query describing the information you want to remember about the person (e.g., 'what is their favorite color?', 'where do they work?')."
         },
-        "k": { 
-          "type": "integer", 
-          "description": "How many memories should I try to recall?",
+        "telegram_id": {
+          "type": "string",
+          "description": "The unique Telegram user ID of the person to search memories for. Provide if known."
+        },
+        "telegram_name": {
+          "type": "string",
+          "description": "The Telegram display name (or username) of the person to search memories for. Provide if known. Can be used if ID is unknown or for additional filtering."
+        },
+        "k": {
+          "type": "integer",
+          "description": "The maximum number of memories to retrieve (default: 5).",
           "default": 5
         }
       },
-      "required": ["query"]
+      "required": [
+        "query"
+      ]
     }
   }
 } 

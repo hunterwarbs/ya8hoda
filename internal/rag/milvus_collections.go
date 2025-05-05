@@ -68,39 +68,42 @@ func EnsureAllCollectionsWithOptions(ctx context.Context, milvusClient *milvuscl
 		log.Printf("Fresh start not requested, keeping existing collections")
 	}
 
-	// Create facts collections (these have more complex vector indexing)
-	log.Printf("Creating people facts collection...")
+	// Ensure the core facts collections exist (these have hybrid indices)
+	log.Printf("Ensuring people facts collection...")
 	if err := createPeopleFactsCollection(ctx, milvusClient, embeddingDim); err != nil {
-		return fmt.Errorf("failed to create people facts collection: %w", err)
+		return fmt.Errorf("failed to create/ensure people facts collection: %w", err)
 	}
 
-	log.Printf("Creating community facts collection...")
+	log.Printf("Ensuring community facts collection...")
 	if err := createCommunityFactsCollection(ctx, milvusClient, embeddingDim); err != nil {
-		return fmt.Errorf("failed to create community facts collection: %w", err)
+		return fmt.Errorf("failed to create/ensure community facts collection: %w", err)
 	}
 
-	log.Printf("Creating bot facts collection...")
+	log.Printf("Ensuring bot facts collection...")
 	if err := createBotFactsCollection(ctx, milvusClient, embeddingDim); err != nil {
-		return fmt.Errorf("failed to create bot facts collection: %w", err)
+		return fmt.Errorf("failed to create/ensure bot facts collection: %w", err)
 	}
 
-	// Add another small delay to ensure all creation operations complete
+	// Add a small delay to allow index creation if collections were just made
 	time.Sleep(500 * time.Millisecond)
 
-	// Finally, load collections in memory
+	// Finally, load collections into memory (Milvus requires this for searching)
+	// It's okay to load even if they were already loaded.
 	for _, collName := range []string{
 		PeopleFactsCollection, CommunityFactsCollection, BotFactsCollection,
 	} {
-		log.Printf("Loading collection: %s", collName)
+		log.Printf("Loading collection into memory: %s", collName)
 		loadOpt := milvusclient.NewLoadCollectionOption(collName)
 		_, err := milvusClient.LoadCollection(ctx, loadOpt)
 		if err != nil {
-			return fmt.Errorf("failed to load collection %s: %w", collName, err)
+			// Check if the error indicates it's already loaded (optional, might depend on Milvus version/error codes)
+			// For now, return the error as loading is critical.
+			return fmt.Errorf("failed to load collection %s into memory: %w", collName, err)
 		}
 		log.Printf("Successfully loaded collection: %s", collName)
 	}
 
-	log.Println("All collections ensured successfully")
+	log.Println("All required collections ensured and loaded successfully")
 	return nil
 }
 
@@ -127,14 +130,14 @@ func createPeopleFactsCollection(ctx context.Context, milvusClient *milvusclient
 					},
 				},
 				{
-					Name:     "owner_id",
+					Name:     "telegram_id",
 					DataType: entity.FieldTypeVarChar,
 					TypeParams: map[string]string{
 						"max_length": "100", // Specify max length for VarChar
 					},
 				},
 				{
-					Name:     "name",
+					Name:     "telegram_name",
 					DataType: entity.FieldTypeVarChar,
 					TypeParams: map[string]string{
 						"max_length": "255", // Specify max length for VarChar

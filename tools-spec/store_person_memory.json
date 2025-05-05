@@ -2,20 +2,32 @@
   "type": "function",
   "function": {
     "name": "store_person_memory",
-    "description": "Okay, I'll remember this fact about the person you're telling me about. I can recall it later.",
+    "description": "Stores a single factual statement or memory about a specific person, identified by their Telegram ID and name.",
     "parameters": {
       "type": "object",
       "properties": {
-        "memory_text": { 
-          "type": "string", 
-          "description": "The specific thing you want me to remember about this person."
+        "telegram_id": {
+          "type": "string",
+          "description": "The unique Telegram user ID of the person this memory is about."
+        },
+        "telegram_name": {
+          "type": "string",
+          "description": "The Telegram display name (or username) of the person this memory is about."
+        },
+        "memory_text": {
+          "type": "string",
+          "description": "The factual statement or memory to store about the person."
         },
         "metadata": {
           "type": "object",
           "description": "Any extra details about this memory, like where it came from?"
         }
       },
-      "required": ["memory_text"]
+      "required": [
+        "telegram_id",
+        "telegram_name",
+        "memory_text"
+      ]
     }
   }
 } 

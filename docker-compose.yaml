@@ -13,21 +13,17 @@ services:
       bge-embedding:
         condition: service_healthy
     restart: unless-stopped
-    network_mode: "host"
     environment:
       - IN_DOCKER_COMPOSE=true
-      #- FRESH_START=true
-    extra_hosts:
-      - "milvus:127.0.0.1"
-      - "bge-embedding:127.0.0.1"
+      - MILVUS_ADDRESS=milvus-standalone:19530
+      - EMBEDDING_API_URL=http://bge-embedding:8000
+      - FRESH_START=true
 
   bge-embedding:
     container_name: bge-embedding
     build:
       context: ./tools
       dockerfile: Dockerfile.bge
-    ports:
-      - "8000:8000"
     deploy:
       resources:
         limits:
@@ -38,8 +34,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 180s
-    restart: unless-stopped
-    network_mode: "host"
 
   etcd:
     container_name: milvus-etcd
@@ -57,7 +51,6 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-    network_mode: "host"
 
   minio:
     container_name: milvus-minio
@@ -70,10 +63,10 @@ services:
     command: minio server /minio_data --console-address ":9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    network_mode: "host"
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
 
   milvus-standalone:
     container_name: milvus-standalone
@@ -82,34 +75,34 @@ services:
     security_opt:
       - seccomp:unconfined
     environment:
-      ETCD_ENDPOINTS: 127.0.0.1:2379
-      MINIO_ADDRESS: 127.0.0.1:9000
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
     volumes:
       - ./data/milvus:/var/lib/milvus
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9091/healthz && curl -s http://localhost:19530/v1/vector/collections | grep -q '\"code\":200' || exit 1"]
+      test:
+        - CMD-SHELL
+        - >
+          curl -f http://localhost:9091/healthz &&
+          curl -s http://localhost:19530/v1/vector/collections | grep -q '"code":200' ||
+          exit 1
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 180s
-    ports:
-      - "19530:19530"
-      - "9091:9091"
     depends_on:
       - "etcd"
       - "minio"
     restart: unless-stopped
-    network_mode: "host"
-    
+
   attu:
     container_name: milvus-attu
     image: zilliz/attu:v2.5.7
     environment:
-      - MILVUS_URL=http://127.0.0.1:19530
+      - MILVUS_URL=http://milvus-standalone:19530
     ports:
       - "3000:3000"
     depends_on:
       milvus-standalone:
         condition: service_healthy
     restart: unless-stopped
-    network_mode: "host"

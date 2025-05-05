@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hunterwarburton/ya8hoda/internal/core"
-	"github.com/hunterwarburton/ya8hoda/internal/logger"
 	"github.com/milvus-io/milvus/client/v2/column"
 	"github.com/milvus-io/milvus/client/v2/entity"
 	"github.com/milvus-io/milvus/client/v2/index"
@@ -253,7 +252,10 @@ func (c *MilvusClient) SearchSimilar(ctx context.Context, vector []float32, k in
 	}
 
 	// Pass the actual ResultSet, not a pointer
-	parsedResults, err := parseSearchResults(&firstResultSet, core.Document{})
+	// For DocumentCollection, use the standard FieldOwnerID/FieldName as placeholders,
+	// as this collection doesn't have those fields structured like the facts collections.
+	// parseSearchResults will handle nil columns gracefully.
+	parsedResults, err := parseSearchResults(&firstResultSet, core.Document{}, FieldOwnerID, FieldName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse search results for: %w", err)
 	}
@@ -320,8 +322,16 @@ func (c *MilvusClient) StoreFact(ctx context.Context, collection, ownerID, name,
 	// Prepare row data
 	row := map[string]interface{}{}
 	row[FieldID] = factID
-	row[FieldOwnerID] = ownerID
-	row[FieldName] = name
+
+	// Use correct field names based on collection
+	if collection == PeopleFactsCollection {
+		row["telegram_id"] = ownerID // Use "telegram_id", value comes from telegramID parameter
+		row["telegram_name"] = name  // Use "telegram_name", value comes from telegramName parameter
+	} else {
+		row[FieldOwnerID] = ownerID // Use standard FieldOwnerID for other collections
+		row[FieldName] = name       // Use standard FieldName for other collections
+	}
+
 	row[FieldText] = text
 	row[FieldDenseVector] = denseVector
 	if c.SupportsSparseEmbeddings() {
@@ -353,8 +363,10 @@ func (c *MilvusClient) StoreFact(ctx context.Context, collection, ownerID, name,
 }
 
 // StorePersonFact stores a fact about a person using hybrid vectors.
-func (c *MilvusClient) StorePersonFact(ctx context.Context, ownerID, name, text string, metadata map[string]interface{}, denseVector []float32, sparseIndices []int, sparseValues []float32, sparseShape []int) (string, error) {
-	return c.StoreFact(ctx, PeopleFactsCollection, ownerID, name, text, metadata, denseVector, sparseIndices, sparseValues, sparseShape)
+// Renamed ownerID -> telegramID, name -> telegramName
+func (c *MilvusClient) StorePersonFact(ctx context.Context, telegramID, telegramName, text string, metadata map[string]interface{}, denseVector []float32, sparseIndices []int, sparseValues []float32, sparseShape []int) (string, error) {
+	// Pass telegramID as ownerID and telegramName as name to the generic StoreFact
+	return c.StoreFact(ctx, PeopleFactsCollection, telegramID, telegramName, text, metadata, denseVector, sparseIndices, sparseValues, sparseShape)
 }
 
 // StoreCommunityFact stores a fact about a community using hybrid vectors.
@@ -398,14 +410,32 @@ func (c *MilvusClient) SearchFacts(ctx context.Context, collection string,
 		k = 5 // Default k
 	}
 
-	// Define output fields
-	outputFields := []string{
-		FieldID,
-		FieldOwnerID,
-		FieldName,
-		FieldText,
-		FieldCreatedAt,
-		FieldMetadata,
+	// Define output fields based on the collection
+	var outputFields []string
+	var ownerIDFieldName, nameFieldName string // Variables to hold the correct field names for parsing
+
+	if collection == PeopleFactsCollection {
+		ownerIDFieldName = "telegram_id"
+		nameFieldName = "telegram_name"
+		outputFields = []string{
+			FieldID,          // "id"
+			ownerIDFieldName, // "telegram_id"
+			nameFieldName,    // "telegram_name"
+			FieldText,
+			FieldCreatedAt,
+			FieldMetadata,
+		}
+	} else {
+		ownerIDFieldName = FieldOwnerID // "owner_id"
+		nameFieldName = FieldName       // "name"
+		outputFields = []string{
+			FieldID,
+			FieldOwnerID, // Use constant for other collections
+			FieldName,    // Use constant for other collections
+			FieldText,
+			FieldCreatedAt,
+			FieldMetadata,
+		}
 	}
 
 	// --- Prepare AnnRequests ---+
@@ -460,7 +490,8 @@ func (c *MilvusClient) SearchFacts(ctx context.Context, collection string,
 	}
 
 	// Parse results into core.SearchResult format
-	parsedResults, err := parseSearchResults(&firstResultSet, core.Document{}) // Pass core.Document base type
+	// Pass the correct field names for owner ID and name to the parser
+	parsedResults, err := parseSearchResults(&firstResultSet, core.Document{}, ownerIDFieldName, nameFieldName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse search results for collection '%s': %w", collection, err)
 	}
@@ -543,34 +574,29 @@ func (c *MilvusClient) RememberAboutSelf(ctx context.Context, text string, metad
 	return factID, nil
 }
 
-// RememberAboutPerson stores a fact about a person
-func (c *MilvusClient) RememberAboutPerson(ctx context.Context, personID string, personName string, text string, metadata map[string]interface{}) (string, error) {
-	// Use provided personName, fallback to "Person" if empty
-	name := personName
-	if name == "" {
-		logger.Warn("RememberAboutPerson called with empty personName for ID %s, defaulting to 'Person'", personID)
-		name = "Person" // Or perhaps use personID? Let's stick to the original plan for now.
-	}
-
+// RememberAboutPerson stores a fact about a person identified by telegramID and telegramName
+// Renamed personID -> telegramID, personName -> telegramName
+func (c *MilvusClient) RememberAboutPerson(ctx context.Context, telegramID string, telegramName string, text string, metadata map[string]interface{}) (string, error) {
+	// Generate embedding
 	embedding, err := c.embed.EmbedQuery(ctx, text)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate embedding for person memory: %w", err)
 	}
 
-	var sparseIndices []int
-	var sparseValues []float32
-	var sparseShape []int
-	if embedding.Sparse != nil {
-		sparseIndices = embedding.Sparse.Indices
-		sparseValues = embedding.Sparse.Values
-		sparseShape = embedding.Sparse.Shape
+	if embedding.Dense == nil || embedding.Sparse == nil {
+		return "", fmt.Errorf("embedding service returned incomplete data (missing dense or sparse)")
 	}
 
-	factID, err := c.StorePersonFact(ctx, personID, name, text, metadata, embedding.Dense, sparseIndices, sparseValues, sparseShape)
-	if err != nil {
-		return "", err
+	// Prepare sparse data components
+	sparseIndicesInt := make([]int, len(embedding.Sparse.Indices))
+	for i, v := range embedding.Sparse.Indices {
+		sparseIndicesInt[i] = int(v) // Assuming indices fit in int
 	}
-	return fmt.Sprintf("Memory about %s (ID: %s) stored successfully with ID: %s", name, personID, factID), nil
+	sparseValues := embedding.Sparse.Values
+	sparseShape := embedding.Sparse.Shape
+
+	// Call the updated StorePersonFact
+	return c.StorePersonFact(ctx, telegramID, telegramName, text, metadata, embedding.Dense, sparseIndicesInt, sparseValues, sparseShape)
 }
 
 // RememberAboutCommunity stores a fact about a community
@@ -652,24 +678,27 @@ func (c *MilvusClient) SearchSelfMemory(ctx context.Context, query string, k int
 	return c.SearchBotFacts(ctx, embedding.Dense, sparseForSearch, k, "")
 }
 
-// SearchPersonalMemory searches a person's facts, allowing filtering by personID and/or personName.
-func (c *MilvusClient) SearchPersonalMemory(ctx context.Context, query, personID, personName string, k int) ([]core.SearchResult, error) {
+// SearchPersonalMemory searches a person's facts, allowing filtering by telegramID and/or telegramName.
+// Renamed personID -> telegramID, personName -> telegramName
+func (c *MilvusClient) SearchPersonalMemory(ctx context.Context, query, telegramID, telegramName string, k int) ([]core.SearchResult, error) {
 	embedding, err := c.embed.EmbedQuery(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embedding for personal memory query: %w", err)
 	}
 
-	// Build the filter expression
+	// Build the filter expression using the correct field names for people_facts
 	var filters []string
-	if personID != "" {
-		filters = append(filters, fmt.Sprintf("%s == \"%s\"", FieldOwnerID, personID))
+	if telegramID != "" {
+		// Use the actual field name "telegram_id" for filtering this specific collection
+		filters = append(filters, fmt.Sprintf("telegram_id == \"%s\"", telegramID))
 	}
-	if personName != "" {
-		// Use 'like' for partial matching or '==' for exact match. Let's use 'like' for flexibility.
-		// Ensure personName is escaped for safety if needed, though Milvus filter syntax is generally simple.
-		filters = append(filters, fmt.Sprintf("%s like \"%s%%\"", FieldName, personName)) // Example: name starts with personName
+	if telegramName != "" {
+		// Use the actual field name "telegram_name" for filtering this specific collection
+		// Using 'like' for prefix matching as before.
+		// Ensure telegramName is escaped for safety if needed.
+		filters = append(filters, fmt.Sprintf("telegram_name like \"%s%%\"", telegramName))
 		// Or for exact match:
-		// filters = append(filters, fmt.Sprintf("%s == \"%s\"", FieldName, personName))
+		// filters = append(filters, fmt.Sprintf("telegram_name == \"%s\"", telegramName))
 	}
 
 	filter := strings.Join(filters, " and ") // Combine filters with 'and'
@@ -734,7 +763,7 @@ type columnProvider interface {
 
 // Helper function to parse search results
 // Updated to return []core.SearchResult and use core.Document
-func parseSearchResults(resultSet *milvusclient.ResultSet, baseDocType core.Document) ([]core.SearchResult, error) {
+func parseSearchResults(resultSet *milvusclient.ResultSet, baseDocType core.Document, ownerIDFieldName, nameFieldName string) ([]core.SearchResult, error) {
 	// Get result count
 	resultCount := resultSet.ResultCount
 	if resultCount == 0 {
@@ -752,8 +781,8 @@ func parseSearchResults(resultSet *milvusclient.ResultSet, baseDocType core.Docu
 
 	// Extract data from the columns
 	idCol := resultSet.GetColumn(FieldID)
-	ownerIDCol := resultSet.GetColumn(FieldOwnerID)
-	nameCol := resultSet.GetColumn(FieldName)
+	ownerIDCol := resultSet.GetColumn(ownerIDFieldName)
+	nameCol := resultSet.GetColumn(nameFieldName)
 	textCol := resultSet.GetColumn(FieldText)
 	timeCol := resultSet.GetColumn(FieldCreatedAt)
 	metadataCol := resultSet.GetColumn(FieldMetadata)

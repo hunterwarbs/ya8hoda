@@ -40,6 +40,10 @@ type Config struct {
 	AllowedUserIDs   string
 	EmbeddingDim     int
 	CharacterFile    string
+	MilvusUser       string
+	MilvusPassword   string
+	MilvusCollection string
+	MilvusUseSSL     bool
 }
 
 // Character represents the character configuration loaded from JSON.
@@ -88,6 +92,10 @@ func loadConfig() *Config {
 		AllowedUserIDs:   os.Getenv("ALLOWED_USER_IDS"),
 		EmbeddingDim:     embeddingDim,
 		CharacterFile:    getEnvWithDefault("CHARACTER_FILE", "cmd/bot/character.json"),
+		MilvusUser:       getenv("MILVUS_USER", ""),
+		MilvusPassword:   getenv("MILVUS_PASSWORD", ""),
+		MilvusCollection: getenv("MILVUS_COLLECTION_NAME", "a_collection"),
+		MilvusUseSSL:     getenvBool("MILVUS_USE_SSL", false),
 	}
 }
 
@@ -203,15 +211,13 @@ func main() {
 	bgeConfig := embedder.BGEEmbedderConfig{
 		ModelName:  "BAAI/bge-m3", // Or from config if needed
 		TimeoutSec: 30,            // Or from config if needed
+		ApiURL:     "",            // Will be set below
 	}
-	// Set API URL based on environment
-	inDockerCompose := os.Getenv("IN_DOCKER_COMPOSE") == "true"
-	if inDockerCompose {
-		bgeConfig.ApiURL = "http://127.0.0.1:8000" // Host networking
-	} else {
-		bgeConfig.ApiURL = "http://localhost:8000" // Local dev
-	}
-	logger.Info("Connecting to BGE embedding server at %s", bgeConfig.ApiURL)
+
+	// Use EMBEDDING_API_URL directly from environment
+	bgeConfig.ApiURL = getenvOrPanic("EMBEDDING_API_URL")
+
+	logger.Info("Using BGE Embedding API URL: ", bgeConfig.ApiURL)
 
 	// Create a temporary config provider for BGEEmbedder initialization
 	dummyMilvusConfig := &embedder.MilvusConfigProvider{
@@ -228,18 +234,16 @@ func main() {
 
 	// --- Initialize RAG Service SECOND (passing EmbedService) ---
 	logger.Info("Initializing RAG Service...")
-	milvusAddr := "127.0.0.1:" + config.MilvusPort // Always use localhost due to host networking
-	var ragService core.RAGService                 // Use core.RAGService interface
-	var milvusClient *rag.MilvusClient             // Keep track if we used the real one
+	// Use MILVUS_ADDRESS directly from environment
+	milvusAddr := getenvOrPanic("MILVUS_ADDRESS")
 
-	logger.Info("Connecting to Milvus at %s (freshStart=%v)", milvusAddr, freshStart)
-	var milvusErr error
-	milvusClient, milvusErr = rag.NewMilvusClient(ctx, milvusAddr, config.EmbeddingDim, freshStart, embedService) // Pass embedService
-	if milvusErr != nil {
-		logger.Error("Failed to initialize Milvus client: %v", milvusErr)
+	logger.Info("Connecting to Milvus at: ", milvusAddr)
+	milvusClient, err := rag.NewMilvusClient(ctx, milvusAddr, config.EmbeddingDim, freshStart, embedService) // Pass embedService
+	if err != nil {
+		logger.Error("Failed to initialize Milvus client: %v", err)
 		os.Exit(1)
 	}
-	ragService = milvusClient // Assign the concrete type that implements the interface
+	ragService := milvusClient // Assign the concrete type that implements the interface
 	logger.Info("RAG Service initialized.")
 	// --- RAG Service Initialized ---
 
@@ -255,10 +259,10 @@ func main() {
 	}
 
 	// Ensure character facts are loaded if needed (outside the removed block)
-	if inDockerCompose && milvusClient != nil && embedService != nil {
+	if milvusClient != nil && embedService != nil {
 		adapter, ok := embedService.(*embedder.BGEAdapter) // Still need the concrete BGEAdapter here
 		if ok {
-			logger.Info("Loading character facts...") // Or re-initializing if freshStart was true
+			logger.Info("Ensuring character facts are loaded/up-to-date...")
 			// Add retry logic with exponential backoff for loading facts
 			maxRetries := 5
 			initialDelay := 3 * time.Second
@@ -287,9 +291,7 @@ func main() {
 		} else {
 			logger.Info("Could not convert embed service to BGEAdapter, skipping loading character facts into Milvus")
 		}
-	} else if !inDockerCompose {
-		logger.Info("Running in development mode, skipping loading character facts into Milvus")
-	} else {
+	} else if milvusClient == nil || embedService == nil {
 		logger.Info("RAG service or embed service not available, skipping loading character facts into Milvus")
 	}
 
@@ -375,4 +377,32 @@ func buildSystemPromptFromCharacter(character *llm.Character) string {
 	builder.WriteString("Respond to the user as this character, maintaining consistency with your background and personality at all times.")
 
 	return builder.String()
+}
+
+// Helper function to get environment variable or use default
+func getenv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
+
+// Helper function to get environment variable or panic if not set
+func getenvOrPanic(key string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	panic(fmt.Sprintf("Environment variable %s not set", key))
+}
+
+// Helper function to get boolean environment variable
+func getenvBool(key string, fallback bool) bool {
+	if value, exists := os.LookupEnv(key); exists {
+		boolVal, err := strconv.ParseBool(strings.ToLower(value))
+		if err == nil {
+			return boolVal
+		}
+		logger.Warn("Invalid boolean value for env var", "key", key, "value", value, "error", err)
+	}
+	return fallback
 }

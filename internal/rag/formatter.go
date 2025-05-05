@@ -17,11 +17,12 @@ func FormatSearchResultsAsJSON(results []core.SearchResult) string {
 
 	// Prepare data for JSON marshalling
 	type memoryResult struct {
-		Memory    string                 `json:"memory"`
-		Score     float32                `json:"score"`
-		Name      string                 `json:"name,omitempty"`
-		Timestamp string                 `json:"timestamp,omitempty"` // Added timestamp field
-		Metadata  map[string]interface{} `json:"metadata,omitempty"`
+		Memory     string                 `json:"memory"`
+		Score      float32                `json:"score"`
+		Name       string                 `json:"name,omitempty"`        // Corresponds to telegram_name now
+		TelegramID string                 `json:"telegram_id,omitempty"` // Added telegram_id
+		Timestamp  string                 `json:"timestamp,omitempty"`   // Added timestamp field
+		Metadata   map[string]interface{} `json:"metadata,omitempty"`
 	}
 
 	outputResults := make([]memoryResult, 0, len(results))
@@ -45,11 +46,12 @@ func FormatSearchResultsAsJSON(results []core.SearchResult) string {
 		}
 
 		outputResults = append(outputResults, memoryResult{
-			Memory:    memoryText,
-			Score:     res.Score,
-			Name:      res.Document.Name,
-			Timestamp: timestampStr, // Populate timestamp
-			Metadata:  res.Document.Metadata,
+			Memory:     memoryText,
+			Score:      res.Score,
+			Name:       res.Document.Name,    // Mapped to telegram_name
+			TelegramID: res.Document.OwnerID, // Mapped to telegram_id
+			Timestamp:  timestampStr,         // Populate timestamp
+			Metadata:   res.Document.Metadata,
 		})
 	}
 
