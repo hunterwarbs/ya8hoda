@@ -9,11 +9,13 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/hunterwarburton/ya8hoda/internal/auth"
+	"github.com/hunterwarburton/ya8hoda/internal/core"
 	embedder "github.com/hunterwarburton/ya8hoda/internal/embed"
 	"github.com/hunterwarburton/ya8hoda/internal/llm"
 	"github.com/hunterwarburton/ya8hoda/internal/logger"
@@ -43,7 +45,6 @@ type Config struct {
 // Character represents the character configuration loaded from JSON.
 type Character struct {
 	Name            string      `json:"name"`
-	PrePrompt       string      `json:"pre_prompt"`
 	Bio             []string    `json:"bio"`
 	Lore            []string    `json:"lore"`
 	Knowledge       []string    `json:"knowledge"`
@@ -80,7 +81,7 @@ func loadConfig() *Config {
 		TelegramToken:    os.Getenv("TG_BOT_TOKEN"),
 		OpenRouterAPIKey: os.Getenv("OPENROUTER_API_KEY"),
 		OpenRouterModel:  getEnvWithDefault("OPENROUTER_MODEL", "meta-llama/llama-3-70b-instruct"),
-		MilvusHost:       getEnvWithDefault("MILVUS_HOST", "milvus"),
+		MilvusHost:       "127.0.0.1",
 		MilvusPort:       getEnvWithDefault("MILVUS_PORT", "19530"),
 		LogLevel:         getEnvWithDefault("LOG_LEVEL", "info"),
 		AdminUserIDs:     os.Getenv("ADMIN_USER_IDS"),
@@ -131,15 +132,24 @@ func loadCharacter(filePath string) (*llm.Character, error) {
 }
 
 func main() {
-	// Parse command line flags
+	// Define command line flags
 	debug := flag.Bool("debug", false, "Enable debug logging")
 	characterFile := flag.String("character", "", "Path to character.json file")
+	freshStartFlag := flag.Bool("freshStart", false, "Drop all existing collections before loading data")
+
+	// Parse command line flags initially
 	flag.Parse()
+
+	// Also check environment variable for fresh start (allows override via env)
+	freshStartEnvStr := os.Getenv("FRESH_START")
+	freshStartEnv, _ := strconv.ParseBool(freshStartEnvStr)
+
+	// Determine final freshStart value (environment variable takes precedence if set)
+	freshStart := *freshStartFlag || freshStartEnv
 
 	// Initialize logger
 	logger.Init(*debug)
-
-	logger.Info("Starting bot...")
+	logger.Info("Starting bot... Debug=%v, FreshStartFlag=%v, FreshStartEnv=%v, FinalFreshStart=%v", *debug, *freshStartFlag, freshStartEnv, freshStart)
 
 	// Load environment variables from .env file
 	if err := godotenv.Load(); err != nil {
@@ -187,18 +197,51 @@ func main() {
 	// Initialize policy service
 	policyService := auth.NewPolicyService(config.AdminUserIDs, config.AllowedUserIDs)
 
-	// Initialize Milvus RAG service
-	milvusAddr := config.MilvusHost + ":" + config.MilvusPort
+	// --- Initialize Embedding Service FIRST ---
+	logger.Info("Initializing Embedding Service...")
+	// Configure the BGE embedder
+	bgeConfig := embedder.BGEEmbedderConfig{
+		ModelName:  "BAAI/bge-m3", // Or from config if needed
+		TimeoutSec: 30,            // Or from config if needed
+	}
+	// Set API URL based on environment
+	inDockerCompose := os.Getenv("IN_DOCKER_COMPOSE") == "true"
+	if inDockerCompose {
+		bgeConfig.ApiURL = "http://127.0.0.1:8000" // Host networking
+	} else {
+		bgeConfig.ApiURL = "http://localhost:8000" // Local dev
+	}
+	logger.Info("Connecting to BGE embedding server at %s", bgeConfig.ApiURL)
 
-	// Use the mock implementation instead of the real one
-	ragService, err := rag.NewMockMilvusService(ctx, milvusAddr, config.EmbeddingDim)
-	if err != nil {
-		logger.Error("Failed to initialize Milvus service: %v", err)
+	// Create a temporary config provider for BGEEmbedder initialization
+	dummyMilvusConfig := &embedder.MilvusConfigProvider{
+		Dim:       config.EmbeddingDim,
+		SparseDim: 250002, // Sparse dimension for BGE-M3
+		UseSparse: true,   // We are using sparse embeddings
+	}
+	// Initialize the core embedder
+	bgeEmbedder := embedder.NewBGEEmbedder(dummyMilvusConfig, bgeConfig)
+	// Initialize the EmbedService adapter using the core interface type
+	var embedService core.EmbedService = embedder.NewBGEAdapter(bgeEmbedder) // Use core.EmbedService
+	logger.Info("Embedding Service initialized.")
+	// --- Embedding Service Initialized ---
+
+	// --- Initialize RAG Service SECOND (passing EmbedService) ---
+	logger.Info("Initializing RAG Service...")
+	milvusAddr := "127.0.0.1:" + config.MilvusPort // Always use localhost due to host networking
+	var ragService core.RAGService                 // Use core.RAGService interface
+	var milvusClient *rag.MilvusClient             // Keep track if we used the real one
+
+	logger.Info("Connecting to Milvus at %s (freshStart=%v)", milvusAddr, freshStart)
+	var milvusErr error
+	milvusClient, milvusErr = rag.NewMilvusClient(ctx, milvusAddr, config.EmbeddingDim, freshStart, embedService) // Pass embedService
+	if milvusErr != nil {
+		logger.Error("Failed to initialize Milvus client: %v", milvusErr)
 		os.Exit(1)
 	}
-
-	// Initialize embedding service (integrated with Milvus BGE-M3)
-	embedService := embedder.NewBGEEmbedder(ragService)
+	ragService = milvusClient // Assign the concrete type that implements the interface
+	logger.Info("RAG Service initialized.")
+	// --- RAG Service Initialized ---
 
 	// Initialize OpenRouter LLM service with character configuration
 	llmService := llm.NewOpenRouterService(config.OpenRouterAPIKey, config.OpenRouterModel)
@@ -211,11 +254,50 @@ func main() {
 		logger.Info("Character '%s' set for the LLM service", character.Name)
 	}
 
-	// Initialize tool router
-	toolRouter := tools.NewToolRouter(policyService, ragService, llmService)
+	// Ensure character facts are loaded if needed (outside the removed block)
+	if inDockerCompose && milvusClient != nil && embedService != nil {
+		adapter, ok := embedService.(*embedder.BGEAdapter) // Still need the concrete BGEAdapter here
+		if ok {
+			logger.Info("Loading character facts...") // Or re-initializing if freshStart was true
+			// Add retry logic with exponential backoff for loading facts
+			maxRetries := 5
+			initialDelay := 3 * time.Second
+			var lastErr error
+			for attempt := 0; attempt < maxRetries; attempt++ {
+				if attempt > 0 {
+					retryDelay := initialDelay * time.Duration(1<<uint(attempt-1))
+					logger.Info("Retrying character facts loading in %v... (attempt %d/%d)", retryDelay, attempt+1, maxRetries)
+					time.Sleep(retryDelay)
+				}
+				// Pass milvusClient (which implements core.RAGService) directly
+				if err := rag.EnsureCharacterFactsWithOptions(ctx, milvusClient, adapter, character, false); err != nil { // Assuming 'false' here means don't *re-ensure* collections, just load facts
+					logger.Error("Attempt %d/%d: Failed to load character facts into Milvus: %v",
+						attempt+1, maxRetries, err)
+					lastErr = err
+					continue
+				} else {
+					logger.Info("Character facts successfully loaded/ensured into Milvus")
+					lastErr = nil
+					break
+				}
+			}
+			if lastErr != nil {
+				logger.Error("All attempts to load character facts into Milvus failed: %v", lastErr)
+			}
+		} else {
+			logger.Info("Could not convert embed service to BGEAdapter, skipping loading character facts into Milvus")
+		}
+	} else if !inDockerCompose {
+		logger.Info("Running in development mode, skipping loading character facts into Milvus")
+	} else {
+		logger.Info("RAG service or embed service not available, skipping loading character facts into Milvus")
+	}
+
+	// Initialize tool router (now uses the initialized ragService and embedService)
+	toolRouter := tools.NewToolRouter(policyService, ragService, embedService) // Pass core interfaces
 
 	// Initialize Telegram bot
-	bot, err := telegram.NewBot(config.TelegramToken, llmService, embedService, toolRouter)
+	bot, err := telegram.NewBot(config.TelegramToken, llmService, embedService, toolRouter, policyService) // Pass core.EmbedService
 	if err != nil {
 		logger.Error("Failed to initialize Telegram bot: %v", err)
 		os.Exit(1)
@@ -251,15 +333,6 @@ func main() {
 // buildSystemPromptFromCharacter creates a system prompt string from a character
 func buildSystemPromptFromCharacter(character *llm.Character) string {
 	var builder strings.Builder
-
-	// Add pre-prompt if available
-	if character.PrePrompt != "" {
-		builder.WriteString(character.PrePrompt)
-		builder.WriteString("\n\n")
-	} else {
-		builder.WriteString("Please don't be cringe, just write like a normal person would at the proper length depending on the context. Don't overshare! Just respond using your background context only if the user asks about it, don't overload them with information. You're opinionated and have your own personality and life going on, don't be overly sycophantic to the user, but don't be too edgy either.")
-		builder.WriteString("\n\n")
-	}
 
 	// Add character name and basic identity
 	builder.WriteString(fmt.Sprintf("You are %s. ", character.Name))

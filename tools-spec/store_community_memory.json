@@ -1,0 +1,25 @@
+{
+  "type": "function",
+  "function": {
+    "name": "store_community_memory",
+    "description": "Got it, I'll remember this fact about the community you specified. I can bring it up later.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "community_id": { 
+          "type": "string", 
+          "description": "The ID of the community this memory is about."
+        },
+        "memory_text": { 
+          "type": "string", 
+          "description": "The specific thing you want me to remember about this community."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Any extra details about this memory, like where it came from?"
+        }
+      },
+      "required": ["community_id", "memory_text"]
+    }
+  }
+} 

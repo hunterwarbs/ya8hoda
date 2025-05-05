@@ -1,0 +1,27 @@
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the embedding server and models
+COPY embedding_server.py .
+COPY models/ /app/models/
+
+# Create model cache directory (still used for other cache purposes)
+RUN mkdir -p /root/.cache/huggingface
+
+# Expose the port
+EXPOSE 8000
+
+# Run the server with local model path
+CMD ["python", "embedding_server.py", "--host", "0.0.0.0", "--port", "8000", "--local-model-path", "/app/models/BAAI/bge-m3"] 

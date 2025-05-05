@@ -1,0 +1,26 @@
+{
+  "type": "function",
+  "function": {
+    "name": "remember_about_person",
+    "description": "Let me search my memories about a specific person to answer your question.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": { 
+          "type": "string", 
+          "description": "The question or topic you want me to recall about the person."
+        },
+        "telegram_id": { 
+          "type": "string", 
+          "description": "The Telegram ID of the person you're asking about. If you don't provide one, I'll search memories across everyone."
+        },
+        "k": { 
+          "type": "integer", 
+          "description": "How many memories should I try to recall?",
+          "default": 5
+        }
+      },
+      "required": ["query"]
+    }
+  }
+} 

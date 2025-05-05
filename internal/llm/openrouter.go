@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/hunterwarburton/ya8hoda/internal/logger"
@@ -16,10 +15,11 @@ import (
 
 // OpenRouterService implements interactions with the OpenRouter API.
 type OpenRouterService struct {
-	apiKey     string
-	model      string
-	httpClient *http.Client
-	character  *Character
+	apiKey          string
+	model           string
+	httpClient      *http.Client
+	character       *Character
+	promptGenerator *PromptGenerator
 }
 
 // OpenRouterError represents an error response from the OpenRouter API.
@@ -98,7 +98,8 @@ func NewOpenRouterService(apiKey, model string) *OpenRouterService {
 // SetCharacter implements the CharacterAware interface.
 func (s *OpenRouterService) SetCharacter(character *Character) error {
 	s.character = character
-	logger.Info("Character configuration set: %s", character.Name)
+	s.promptGenerator = NewPromptGenerator(character)
+	logger.LLMInfo("Character configuration set: %s", character.Name)
 	return nil
 }
 
@@ -107,115 +108,70 @@ func (s *OpenRouterService) GetCharacter() *Character {
 	return s.character
 }
 
-// generateSystemPrompt creates a system prompt based on the character configuration.
-func (s *OpenRouterService) generateSystemPrompt() string {
-	if s.character == nil {
-		return "You are a helpful assistant."
-	}
-
-	var builder strings.Builder
-	// Add pre-prompt for consistent behavior
-	if s.character.PrePrompt != "" {
-		builder.WriteString(s.character.PrePrompt)
-	} else {
-		builder.WriteString("Please don't be cringe, just write like a normal person would at the proper length depending on the context. Don't overshare! Just respond using your background context only if the user asks about it, don't overload them with information. You're opinionated and have your own personality and life going on, don't be overly sycophantic to the user, but don't be too edgy either.")
-	}
-
-	// Add character name and basic identity
-	builder.WriteString(fmt.Sprintf("You are %s. ", s.character.Name))
-
-	builder.WriteString("The following is your background to pull from when relevant:")
-	builder.WriteString("\n\n")
-
-	// Add bio information
-	if len(s.character.Bio) > 0 {
-		builder.WriteString("Here's your background: ")
-		builder.WriteString(strings.Join(s.character.Bio, " "))
-		builder.WriteString("\n\n")
-	}
-
-	// Add lore
-	if len(s.character.Lore) > 0 {
-		builder.WriteString("Additional background details: ")
-		builder.WriteString(strings.Join(s.character.Lore, " "))
-		builder.WriteString("\n\n")
-	}
-
-	// Add communication style
-	if len(s.character.Style.Chat) > 0 {
-		builder.WriteString("Your communication style: ")
-		builder.WriteString(strings.Join(s.character.Style.Chat, ", "))
-		builder.WriteString("\n\n")
-	}
-
-	// Add example topics
-	if len(s.character.Topics) > 0 {
-		builder.WriteString("Topics you're knowledgeable about: ")
-		builder.WriteString(strings.Join(s.character.Topics, ", "))
-		builder.WriteString("\n\n")
-	}
-
-	// Add personality traits
-	if len(s.character.Adjectives) > 0 {
-		builder.WriteString("Your personality traits: ")
-		builder.WriteString(strings.Join(s.character.Adjectives, ", "))
-		builder.WriteString("\n\n")
-	}
-
-	// Add message examples if available
-	if len(s.character.MessageExamples) > 0 {
-		builder.WriteString("Here are examples of how you respond to various questions:\n\n")
-
-		for _, conversation := range s.character.MessageExamples {
-			if len(conversation) >= 2 {
-				userMsg := conversation[0]
-				botMsg := conversation[1]
-
-				builder.WriteString(fmt.Sprintf("User: %s\n", userMsg.Content.Text))
-				builder.WriteString(fmt.Sprintf("You: %s\n\n", botMsg.Content.Text))
-			}
-		}
-	}
-
-	builder.WriteString("Respond to the user as this character, maintaining consistency with your background and personality at all times.")
-
-	return builder.String()
-}
-
 // ChatCompletion sends a chat completion request to OpenRouter.
 func (s *OpenRouterService) ChatCompletion(ctx context.Context, telegramMessages []telegram.Message, toolSpecs []interface{}) (*telegram.ChatResponse, error) {
+	return s.ChatCompletionWithUserInfo(ctx, telegramMessages, toolSpecs, nil)
+}
+
+// ChatCompletionWithUserInfo sends a chat completion request to OpenRouter with user information.
+func (s *OpenRouterService) ChatCompletionWithUserInfo(ctx context.Context, telegramMessages []telegram.Message, toolSpecs []interface{}, userInfo *telegram.UserInfo) (*telegram.ChatResponse, error) {
 	url := "https://openrouter.ai/api/v1/chat/completions"
+	chatID := int64(0) // Default chatID if not available from userInfo (though less likely in this context)
+	userID := int64(0)
+	if userInfo != nil {
+		// Assuming UserInfo has ChatID or can be inferred; adjust if needed.
+		// If UserInfo only has UserID, we might need to pass ChatID explicitly.
+		userID = userInfo.ID
+		// chatID = userInfo.ChatID // Example if ChatID was available
+	}
 
 	// Convert telegram messages to openrouter messages
 	messages := convertTelegramMessagesToLLM(telegramMessages)
-
-	// Log the incoming messages to see what we're starting with
-	for i, msg := range messages {
-		logger.Debug("Incoming message[%d]: role=%s, content=%s", i, msg.Role, msg.Content)
-	}
+	logger.LLMDebug("ChatID[%d] UserID[%d]: Converted %d Telegram messages to LLM format.", chatID, userID, len(messages))
 
 	// Check if there's an existing system message and replace it with our character system message
 	hasSystemMessage := len(messages) > 0 && messages[0].Role == "system"
 	if hasSystemMessage {
-		logger.Debug("Found existing system message: %s", messages[0].Content)
-
-		// Replace the existing system message with our character system message
-		if s.character != nil {
-			systemPrompt := s.generateSystemPrompt()
-			logger.Debug("Replacing system prompt with: %s", systemPrompt)
+		if s.promptGenerator != nil {
+			var systemPrompt string
+			if userInfo != nil {
+				systemPrompt = s.promptGenerator.GenerateSystemPromptWithUserInfo(userInfo)
+				logger.LLMDebug("ChatID[%d] UserID[%d]: Replacing system prompt using UserInfo.", chatID, userID)
+			} else {
+				systemPrompt = s.promptGenerator.GenerateSystemPrompt()
+				logger.LLMDebug("ChatID[%d] UserID[%d]: Replacing system prompt with default character prompt.", chatID, userID)
+			}
+			promptStart := systemPrompt
+			if len(promptStart) > 80 {
+				promptStart = promptStart[:80] + "..."
+			}
+			logger.LLMDebug("ChatID[%d] UserID[%d]: System prompt starts with: %s", chatID, userID, promptStart)
 			messages[0].Content = systemPrompt
+		} else {
+			logger.LLMWarn("ChatID[%d] UserID[%d]: Found system message but no prompt generator available to replace it.", chatID, userID)
 		}
-	} else if s.character != nil {
-		// No system message exists, add one
-		systemPrompt := s.generateSystemPrompt()
-		logger.Debug("Generated system prompt (raw): %s", systemPrompt)
-		// Prepend the system message
+	} else if s.promptGenerator != nil {
+		var systemPrompt string
+		if userInfo != nil {
+			systemPrompt = s.promptGenerator.GenerateSystemPromptWithUserInfo(userInfo)
+			logger.LLMDebug("ChatID[%d] UserID[%d]: Creating system prompt with UserInfo.", chatID, userID)
+		} else {
+			systemPrompt = s.promptGenerator.GenerateSystemPrompt()
+			logger.LLMDebug("ChatID[%d] UserID[%d]: Creating default character system prompt.", chatID, userID)
+		}
+		promptStart := systemPrompt
+		if len(promptStart) > 80 {
+			promptStart = promptStart[:80] + "..."
+		}
+		logger.LLMDebug("ChatID[%d] UserID[%d]: Generated system prompt starts with: %s", chatID, userID, promptStart)
 		systemMessage := Message{
 			Role:    "system",
 			Content: systemPrompt,
 		}
 		messages = append([]Message{systemMessage}, messages...)
-		logger.Debug("Added character system prompt: %s", systemPrompt)
+		logger.LLMDebug("ChatID[%d] UserID[%d]: Prepended character system prompt. History length: %d", chatID, userID, len(messages))
+	} else {
+		logger.LLMWarn("ChatID[%d] UserID[%d]: No existing system message and no prompt generator to create one.", chatID, userID)
 	}
 
 	// Create the request body
@@ -225,28 +181,35 @@ func (s *OpenRouterService) ChatCompletion(ctx context.Context, telegramMessages
 	}
 
 	// Add tools if provided
-	//if len(toolSpecs) > 0 {
-	//	reqBody.Tools = toolSpecs
-	//}
+	if len(toolSpecs) > 0 {
+		logger.LLMDebug("ChatID[%d] UserID[%d]: Adding %d tools to request.", chatID, userID, len(toolSpecs))
+		// Logging each tool spec can be very verbose, comment out unless needed
+		/*
+			for i, tool := range toolSpecs {
+				jsonTool, _ := json.Marshal(tool)
+				logger.LLMDebug("ChatID[%d] UserID[%d]: Tool %d: %s", chatID, userID, i, string(jsonTool))
+			}
+		*/
+		reqBody.Tools = toolSpecs
+	} else {
+		logger.LLMDebug("ChatID[%d] UserID[%d]: No tools provided for request.", chatID, userID)
+	}
+
 	// Convert the request to JSON
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
+		// Use LLMError as this relates to preparing the LLM call
+		logger.LLMError("ChatID[%d] UserID[%d]: Failed to marshal LLM request: %v", chatID, userID, err)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
+	// logger.LLMDebug("ChatID[%d] UserID[%d]: LLM Request Body: %s", chatID, userID, string(jsonData)) // Very verbose
 
-	// Pretty print the request JSON for debugging
-	if logger.IsDebugEnabled() {
-		var prettyJSON bytes.Buffer
-		if err := json.Indent(&prettyJSON, jsonData, "", "  "); err == nil {
-			logger.Debug("OpenRouter request: %s", prettyJSON.String())
-		} else {
-			logger.Debug("OpenRouter request (raw): %s", string(jsonData))
-		}
-	}
+	logger.LLMInfo("ChatID[%d] UserID[%d]: Sending request to LLM '%s' with %d messages and %d tools.", chatID, userID, s.model, len(messages), len(reqBody.Tools))
 
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
+		logger.LLMError("ChatID[%d] UserID[%d]: Failed to create HTTP request for LLM: %v", chatID, userID, err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -257,6 +220,7 @@ func (s *OpenRouterService) ChatCompletion(ctx context.Context, telegramMessages
 	// Send the request
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		logger.LLMError("ChatID[%d] UserID[%d]: Failed to send HTTP request to LLM: %v", chatID, userID, err)
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -264,32 +228,34 @@ func (s *OpenRouterService) ChatCompletion(ctx context.Context, telegramMessages
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		logger.LLMError("ChatID[%d] UserID[%d]: Failed to read LLM response body: %v", chatID, userID, err)
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	// logger.LLMDebug("ChatID[%d] UserID[%d]: Raw LLM Response Body: %s", chatID, userID, string(body)) // Verbose
 
 	// Check for error in response body regardless of status code
 	var openRouterErr OpenRouterError
 	if err := json.Unmarshal(body, &openRouterErr); err == nil && openRouterErr.Error.Message != "" {
-		// Return a detailed error message
-		if openRouterErr.Error.Metadata.Raw != "" {
-			return nil, fmt.Errorf("OpenRouter API error (%s): %s - Raw provider error: %s",
-				openRouterErr.Error.Metadata.ProviderName,
-				openRouterErr.Error.Message,
-				openRouterErr.Error.Metadata.Raw)
+		errMsg := fmt.Sprintf("OpenRouter API error: %s (code: %d)", openRouterErr.Error.Message, openRouterErr.Error.Code)
+		if openRouterErr.Error.Metadata.ProviderName != "" {
+			errMsg = fmt.Sprintf("OpenRouter API error (%s): %s", openRouterErr.Error.Metadata.ProviderName, openRouterErr.Error.Message)
+			if openRouterErr.Error.Metadata.Raw != "" {
+				errMsg += fmt.Sprintf(" - Raw: %s", openRouterErr.Error.Metadata.Raw)
+			}
 		}
-		return nil, fmt.Errorf("OpenRouter API error: %s (code: %d)",
-			openRouterErr.Error.Message,
-			openRouterErr.Error.Code)
+		logger.LLMError("ChatID[%d] UserID[%d]: %s", chatID, userID, errMsg)
+		return nil, fmt.Errorf(errMsg)
 	}
 
 	// Check for HTTP errors
 	if resp.StatusCode != http.StatusOK {
-		// Fallback to generic error if not parsed above
-		return nil, fmt.Errorf("OpenRouter API error (status %d): %s", resp.StatusCode, string(body))
+		errMsg := fmt.Sprintf("OpenRouter API HTTP error (status %d): %s", resp.StatusCode, string(body))
+		logger.LLMError("ChatID[%d] UserID[%d]: %s", chatID, userID, errMsg)
+		return nil, fmt.Errorf(errMsg)
 	}
 
 	// Parse the complete response
-	var openRouterResp struct {
+	var openRouterResp struct { // Keep definition inline or move globally
 		ID      string `json:"id"`
 		Choices []struct {
 			FinishReason       string  `json:"finish_reason"`
@@ -308,12 +274,28 @@ func (s *OpenRouterService) ChatCompletion(ctx context.Context, telegramMessages
 	}
 
 	if err := json.Unmarshal(body, &openRouterResp); err != nil {
+		logger.LLMError("ChatID[%d] UserID[%d]: Failed to decode LLM success response: %v", chatID, userID, err)
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	// Make sure we have a choice
 	if len(openRouterResp.Choices) == 0 {
+		logger.LLMError("ChatID[%d] UserID[%d]: OpenRouter API returned no choices in response.", chatID, userID)
 		return nil, fmt.Errorf("OpenRouter API returned no choices")
+	}
+
+	// Log usage info
+	if openRouterResp.Usage.TotalTokens > 0 {
+		logger.LLMInfo("ChatID[%d] UserID[%d]: LLM Usage - Prompt: %d, Completion: %d, Total: %d tokens. Finish Reason: %s",
+			chatID, userID,
+			openRouterResp.Usage.PromptTokens,
+			openRouterResp.Usage.CompletionTokens,
+			openRouterResp.Usage.TotalTokens,
+			openRouterResp.Choices[0].FinishReason,
+		)
+	} else {
+		logger.LLMInfo("ChatID[%d] UserID[%d]: LLM call completed. Finish Reason: %s (Usage data unavailable)",
+			chatID, userID, openRouterResp.Choices[0].FinishReason)
 	}
 
 	// Convert back to telegram format
@@ -324,7 +306,16 @@ func (s *OpenRouterService) ChatCompletion(ctx context.Context, telegramMessages
 		Message: responseMessage,
 	}
 
-	logger.Debug("OpenRouter response: %+v", response)
+	// Log response content preview
+	preview := response.Message.Content
+	if len(preview) > 80 {
+		preview = preview[:80] + "..."
+	}
+	toolCallInfo := ""
+	if len(response.Message.ToolCalls) > 0 {
+		toolCallInfo = fmt.Sprintf(" (ToolCalls: %d)", len(response.Message.ToolCalls))
+	}
+	logger.LLMDebug("ChatID[%d] UserID[%d]: Prepared LLM response for Telegram: \"%s\"%s", chatID, userID, preview, toolCallInfo)
 
 	return response, nil
 }
@@ -334,30 +325,34 @@ func (s *OpenRouterService) GenerateImage(ctx context.Context, prompt, size, sty
 	url := "https://openrouter.ai/api/v1/images/generations"
 
 	// Enhance prompt with character personality if available
-	if s.character != nil {
-		prompt = fmt.Sprintf("Create an image as if you were %s, who is %s. %s",
-			s.character.Name,
-			strings.Join(s.character.Adjectives[:min(3, len(s.character.Adjectives))], ", "),
-			prompt)
+	if s.promptGenerator != nil {
+		prompt = s.promptGenerator.EnhanceImagePrompt(prompt)
+		logger.LLMDebug("Enhanced image prompt using character personality.")
 	}
 
 	// Create the request body
-	reqBody := map[string]interface{}{
+	reqBody := map[string]interface{}{ // Use specific struct if preferred
 		"prompt": prompt,
-		"model":  "anthropic/claude-3-opus", // Use a model that supports image generation, adjust as needed
+		"model":  s.model, // Ensure this model supports image generation!
 		"size":   size,
 		"style":  style,
+		// "n": 1, // Usually default
+		// "response_format": "url", // Usually default
 	}
 
 	// Convert the request to JSON
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
+		logger.LLMError("Failed to marshal image request: %v", err)
 		return "", fmt.Errorf("failed to marshal image request: %w", err)
 	}
+
+	logger.LLMInfo("Sending image generation request to LLM '%s' (Style: %s, Size: %s). Prompt: \"%s\"", s.model, style, size, prompt)
 
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
+		logger.LLMError("Failed to create image request HTTP object: %v", err)
 		return "", fmt.Errorf("failed to create image request: %w", err)
 	}
 
@@ -368,6 +363,7 @@ func (s *OpenRouterService) GenerateImage(ctx context.Context, prompt, size, sty
 	// Send the request
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		logger.LLMError("Failed to send image request: %v", err)
 		return "", fmt.Errorf("failed to send image request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -375,54 +371,52 @@ func (s *OpenRouterService) GenerateImage(ctx context.Context, prompt, size, sty
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		logger.LLMError("Failed to read image response body: %v", err)
+		return "", fmt.Errorf("failed to read image response body: %w", err)
 	}
 
-	// Check for HTTP errors
+	// Check for HTTP errors first
 	if resp.StatusCode != http.StatusOK {
 		// Try to parse as an OpenRouter error response
 		var openRouterErr OpenRouterError
 		if err := json.Unmarshal(body, &openRouterErr); err == nil && openRouterErr.Error.Message != "" {
-			// Return a detailed error message
-			if openRouterErr.Error.Metadata.Raw != "" {
-				return "", fmt.Errorf("OpenRouter API error (%s): %s - Raw provider error: %s",
-					openRouterErr.Error.Metadata.ProviderName,
-					openRouterErr.Error.Message,
-					openRouterErr.Error.Metadata.Raw)
+			errMsg := fmt.Sprintf("OpenRouter Image API error: %s (code: %d)", openRouterErr.Error.Message, openRouterErr.Error.Code)
+			if openRouterErr.Error.Metadata.ProviderName != "" {
+				errMsg = fmt.Sprintf("OpenRouter Image API error (%s): %s", openRouterErr.Error.Metadata.ProviderName, openRouterErr.Error.Message)
+				if openRouterErr.Error.Metadata.Raw != "" {
+					errMsg += fmt.Sprintf(" - Raw: %s", openRouterErr.Error.Metadata.Raw)
+				}
 			}
-			return "", fmt.Errorf("OpenRouter API error: %s (code: %d)",
-				openRouterErr.Error.Message,
-				openRouterErr.Error.Code)
+			logger.LLMError(errMsg)
+			return "", fmt.Errorf(errMsg)
 		}
-		// Fallback to generic error
-		return "", fmt.Errorf("OpenRouter API error (status %d): %s", resp.StatusCode, string(body))
+		// Fallback to generic HTTP error
+		errMsg := fmt.Sprintf("OpenRouter Image API HTTP error (status %d): %s", resp.StatusCode, string(body))
+		logger.LLMError(errMsg)
+		return "", fmt.Errorf(errMsg)
 	}
 
-	// Parse the response
-	var imageResp struct {
+	// Parse the success response
+	var imageResp struct { // Keep inline or move globally
 		Data []struct {
 			URL string `json:"url"`
+			// Add other fields if needed, e.g., b64_json
 		} `json:"data"`
 	}
 
 	if err := json.Unmarshal(body, &imageResp); err != nil {
+		logger.LLMError("Failed to decode image success response: %v. Body: %s", err, string(body))
 		return "", fmt.Errorf("failed to decode image response: %w", err)
 	}
 
 	// Make sure we have an image URL
 	if len(imageResp.Data) == 0 || imageResp.Data[0].URL == "" {
+		logger.LLMError("OpenRouter Image API returned no image URL in data.")
 		return "", fmt.Errorf("OpenRouter API returned no image URL")
 	}
 
+	logger.LLMInfo("Image generated successfully. URL: %s", imageResp.Data[0].URL)
 	return imageResp.Data[0].URL, nil
-}
-
-// Helper function to get minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // Helper functions to convert between telegram and llm types

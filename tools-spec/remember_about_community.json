@@ -1,0 +1,26 @@
+{
+  "type": "function",
+  "function": {
+    "name": "remember_about_community",
+    "description": "Let me search my memories about a specific community to answer your question.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": { 
+          "type": "string", 
+          "description": "The question or topic you want me to recall about the community."
+        },
+        "community_id": { 
+          "type": "string", 
+          "description": "The ID of the community you're asking about. If you don't provide one, I'll search memories across all communities."
+        },
+        "k": { 
+          "type": "integer", 
+          "description": "How many memories should I try to recall?",
+          "default": 5
+        }
+      },
+      "required": ["query"]
+    }
+  }
+} 

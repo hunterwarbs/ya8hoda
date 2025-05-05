@@ -1,0 +1,6 @@
+---
+description: 
+globs: internal/rag/*
+alwaysApply: false
+---
+We are using milvus version v2.5.3 you MUST reference the source code [milvus_go.txt](mdc:milvus_go.txt) to figure out how to imlpement things. You can search the web if you need but YOU MUST only implement code for milvus version 2.5+ 

@@ -1,0 +1,22 @@
+{
+  "type": "function",
+  "function": {
+    "name": "remember_about_self",
+    "description": "I should use this if I need to remember anything at all related to myself.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": { 
+          "type": "string", 
+          "description": "The question or topic you want me to recall about myself."
+        },
+        "k": { 
+          "type": "integer", 
+          "description": "How many memories should I try to recall?",
+          "default": 5
+        }
+      },
+      "required": ["query"]
+    }
+  }
+} 

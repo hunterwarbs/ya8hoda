@@ -72,19 +72,36 @@ func (p *PolicyService) IsToolAllowed(userID int64, toolName string) bool {
 		return true
 	}
 
-	// Regular users can only use specific tools
-	switch toolName {
-	case "milvus.search":
-		// Everyone can search
-		return true
-	case "milvus.store_document":
-		// Only admins can store documents
-		return p.IsAdmin(userID)
-	case "openrouter.generate_image":
-		// Everyone can generate images
-		return true
-	default:
-		// Unknown tools are not allowed
-		return false
+	// Tool list for non-admins - only include tools defined in tools-spec
+	allowedToolsMap := map[string]bool{
+		"store_person_memory":      true,
+		"store_self_memory":        true,
+		"store_community_memory":   true,
+		"remember_about_person":    true,
+		"remember_about_self":      true,
+		"remember_about_community": true,
 	}
+
+	return allowedToolsMap[toolName]
+}
+
+// GetAllowedTools returns a list of tool names that a user is allowed to use.
+func (p *PolicyService) GetAllowedTools(userID int64) []string {
+	// Define available tools (should match tools-spec directory)
+	allTools := []string{
+		"store_person_memory",
+		"store_self_memory",
+		"store_community_memory",
+		"remember_about_person",
+		"remember_about_self",
+		"remember_about_community",
+	}
+
+	// If user is admin, they can use all defined tools
+	if p.IsAdmin(userID) {
+		return allTools
+	}
+
+	// For regular users, return the same list
+	return allTools
 }

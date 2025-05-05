@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   bot:
     build:
@@ -8,28 +6,110 @@ services:
     env_file: .env
     volumes:
       - ./data/tmp:/tmp/images
+      - ./tools-spec:/app/tools-spec
     depends_on:
-      - milvus
+      milvus-standalone:
+        condition: service_healthy
+      bge-embedding:
+        condition: service_healthy
     restart: unless-stopped
-    networks:
-      - milvus-net
+    network_mode: "host"
+    environment:
+      - IN_DOCKER_COMPOSE=true
+      - FRESH_START=true
+    extra_hosts:
+      - "milvus:127.0.0.1"
+      - "bge-embedding:127.0.0.1"
 
-  milvus:
+  bge-embedding:
+    container_name: bge-embedding
+    build:
+      context: ./tools
+      dockerfile: Dockerfile.bge
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    restart: unless-stopped
+    network_mode: "host"
+
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.18
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ./data/etcd:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    network_mode: "host"
+
+  minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - ./data/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    network_mode: "host"
+
+  milvus-standalone:
+    container_name: milvus-standalone
     image: milvusdb/milvus:v2.5.10
     command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
     environment:
-      ETCD_CFG_AUTO_COMPACTION_MODE: revision
-      ETCD_CFG_AUTO_COMPACTION_RETENTION: "1000"
-      COMMON_CFG_RETENTION_DURATION: 0s
+      ETCD_ENDPOINTS: 127.0.0.1:2379
+      MINIO_ADDRESS: 127.0.0.1:9000
     volumes:
       - ./data/milvus:/var/lib/milvus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9091/healthz && curl -s http://localhost:19530/v1/vector/collections | grep -q '\"code\":200' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
     ports:
       - "19530:19530"
-      - "9091:9091" # WebUI port
-    networks:
-      - milvus-net
+      - "9091:9091"
+    depends_on:
+      - "etcd"
+      - "minio"
     restart: unless-stopped
-
-networks:
-  milvus-net:
-    driver: bridge 
+    network_mode: "host"
+    
+  attu:
+    container_name: milvus-attu
+    image: zilliz/attu:v2.5.7
+    environment:
+      - MILVUS_URL=http://127.0.0.1:19530
+    ports:
+      - "3000:3000"
+    depends_on:
+      milvus-standalone:
+        condition: service_healthy
+    restart: unless-stopped
+    network_mode: "host"
