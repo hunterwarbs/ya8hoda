@@ -16,7 +16,7 @@ services:
     network_mode: "host"
     environment:
       - IN_DOCKER_COMPOSE=true
-      - FRESH_START=true
+      #- FRESH_START=true
     extra_hosts:
       - "milvus:127.0.0.1"
       - "bge-embedding:127.0.0.1"

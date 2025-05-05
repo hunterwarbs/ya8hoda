@@ -2,7 +2,7 @@
   "type": "function",
   "function": {
     "name": "remember_about_person",
-    "description": "Let me search my memories about a specific person to answer your question.",
+    "description": "Let me search my memories about what I know about everyone I've met to answer your question. I can filter by name or Telegram ID if I need to, but can also omit those to search across everyone.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -13,6 +13,10 @@
         "telegram_id": { 
           "type": "string", 
           "description": "The Telegram ID of the person you're asking about. If you don't provide one, I'll search memories across everyone."
+        },
+        "person_name": {
+          "type": "string",
+          "description": "The name of the person you're asking about. Use this to refine the search if the Telegram ID is unknown or ambiguous."
         },
         "k": { 
           "type": "integer", 

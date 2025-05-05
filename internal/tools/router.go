@@ -7,6 +7,7 @@ import (
 
 	"github.com/hunterwarburton/ya8hoda/internal/core"
 	"github.com/hunterwarburton/ya8hoda/internal/logger"
+	"github.com/hunterwarburton/ya8hoda/internal/rag"
 	"github.com/hunterwarburton/ya8hoda/internal/telegram"
 )
 
@@ -117,6 +118,7 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 	case "remember_about_person":
 		var args struct {
 			TelegramID string `json:"telegram_id,omitempty"` // Optional, searches all if empty
+			PersonName string `json:"person_name,omitempty"` // Optional, searches by name if provided
 			Query      string `json:"query"`
 			K          int    `json:"k"`
 		}
@@ -132,11 +134,11 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 		}
 		// Call the RAGService interface method for searching personal memory
 		var searchResults []core.SearchResult
-		searchResults, err = r.rag.SearchPersonalMemory(ctx, args.Query, args.TelegramID, args.K)
+		searchResults, err = r.rag.SearchPersonalMemory(ctx, args.Query, args.TelegramID, args.PersonName, args.K)
 		if err != nil {
 			return "", fmt.Errorf("failed to execute remember_about_person: %w", err)
 		}
-		result = formatSearchResults(searchResults) // Assign formatted results
+		result = rag.FormatSearchResultsAsJSON(searchResults) // Use rag.FormatSearchResultsAsJSON
 
 	case "remember_about_community":
 		var args struct {
@@ -160,7 +162,7 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 		if err != nil {
 			return "", fmt.Errorf("failed to execute remember_about_community: %w", err)
 		}
-		result = formatSearchResults(searchResults) // Assign formatted results
+		result = rag.FormatSearchResultsAsJSON(searchResults) // Use rag.FormatSearchResultsAsJSON
 
 	case "remember_about_self": // Implemented based on other search functions
 		var args struct {
@@ -183,7 +185,7 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 		if err != nil {
 			return "", fmt.Errorf("failed to execute remember_about_self: %w", err)
 		}
-		result = formatSearchResults(searchResults) // Assign formatted results
+		result = rag.FormatSearchResultsAsJSON(searchResults) // Use rag.FormatSearchResultsAsJSON
 
 	default:
 		err = fmt.Errorf("unknown tool: %s", call.Function.Name)
@@ -202,67 +204,3 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 		return result, nil // Return the result string
 	}
 }
-
-// formatSearchResults formats search results into a JSON string.
-func formatSearchResults(results []core.SearchResult) string {
-	if len(results) == 0 {
-		// Return a JSON representation of an empty list or a specific message
-		return `{"memories": [], "message": "No relevant memories found."}`
-	}
-
-	// Prepare data for JSON marshalling
-	type memoryResult struct {
-		Memory string  `json:"memory"`
-		Score  float32 `json:"score"`
-		// Add other metadata fields if needed
-		// Metadata map[string]interface{} `json:"metadata,omitempty"`
-	}
-
-	outputResults := make([]memoryResult, 0, len(results))
-	for _, res := range results {
-		memoryText := res.Document.Text // Fallback
-		if res.Document.Metadata != nil {
-			if mt, ok := res.Document.Metadata["memory_text"]; ok {
-				if text, ok := mt.(string); ok && text != "" {
-					memoryText = text // Prefer metadata["memory_text"]
-				}
-			}
-		}
-		if memoryText == "" {
-			memoryText = "(memory text not available)" // Final fallback
-		}
-
-		outputResults = append(outputResults, memoryResult{
-			Memory: memoryText,
-			Score:  res.Score,
-			// Metadata: res.Document.Metadata, // Optionally include metadata
-		})
-	}
-
-	// Marshal the results into a JSON string
-	jsonData, err := json.Marshal(map[string]interface{}{"memories": outputResults})
-	if err != nil {
-		logger.Error("Failed to marshal search results to JSON: %v", err)
-		// Return an error JSON or a simple error message string
-		return `{"error": "Failed to format results as JSON"}`
-	}
-
-	return string(jsonData)
-}
-
-// buildCollectionName constructs the Milvus collection name. (Removed as helpers were removed)
-// func (r *ToolRouter) buildCollectionName(memType, specificID string) string { ... }
-
-// Removed StoreMemory helper function
-// func (r *ToolRouter) StoreMemory(...) { ... }
-
-// Removed SearchMemory helper function
-// func (r *ToolRouter) SearchMemory(...) { ... }
-
-// Removed commented out old handler functions
-// // func (r *ToolRouter) handleRememberAboutPerson(...) { ... }
-// // func (r *ToolRouter) handleRememberAboutSelf(...) { ... }
-// // func (r *ToolRouter) handleRememberAboutCommunity(...) { ... }
-// // func (r *ToolRouter) handleSearchPersonalMemory(...) { ... }
-// // func (r *ToolRouter) handleSearchCommunityMemory(...) { ... }
-// // func (r *ToolRouter) storeMemoryWithEmbedding(...) { ... }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/hunterwarburton/ya8hoda/internal/core"
@@ -651,16 +652,29 @@ func (c *MilvusClient) SearchSelfMemory(ctx context.Context, query string, k int
 	return c.SearchBotFacts(ctx, embedding.Dense, sparseForSearch, k, "")
 }
 
-// SearchPersonalMemory searches a person's facts
-func (c *MilvusClient) SearchPersonalMemory(ctx context.Context, query, personID string, k int) ([]core.SearchResult, error) {
+// SearchPersonalMemory searches a person's facts, allowing filtering by personID and/or personName.
+func (c *MilvusClient) SearchPersonalMemory(ctx context.Context, query, personID, personName string, k int) ([]core.SearchResult, error) {
 	embedding, err := c.embed.EmbedQuery(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embedding for personal memory query: %w", err)
 	}
-	filter := ""
+
+	// Build the filter expression
+	var filters []string
 	if personID != "" {
-		filter = fmt.Sprintf("%s == \"%s\"", FieldOwnerID, personID)
+		filters = append(filters, fmt.Sprintf("%s == \"%s\"", FieldOwnerID, personID))
 	}
+	if personName != "" {
+		// Use 'like' for partial matching or '==' for exact match. Let's use 'like' for flexibility.
+		// Ensure personName is escaped for safety if needed, though Milvus filter syntax is generally simple.
+		filters = append(filters, fmt.Sprintf("%s like \"%s%%\"", FieldName, personName)) // Example: name starts with personName
+		// Or for exact match:
+		// filters = append(filters, fmt.Sprintf("%s == \"%s\"", FieldName, personName))
+	}
+
+	filter := strings.Join(filters, " and ") // Combine filters with 'and'
+	log.Printf("Constructed filter for SearchPersonalMemory: %s", filter)
+
 	// Prepare sparse data for search, checking for validity first
 	var sparseForSearch entity.SparseEmbedding
 	if embedding.Sparse != nil && len(embedding.Sparse.Indices) > 0 && len(embedding.Sparse.Values) > 0 {
@@ -678,6 +692,7 @@ func (c *MilvusClient) SearchPersonalMemory(ctx context.Context, query, personID
 	} else {
 		sparseForSearch, _ = entity.NewSliceSparseEmbedding([]uint32{}, []float32{})
 	}
+
 	return c.SearchPersonFacts(ctx, embedding.Dense, sparseForSearch, k, filter)
 }
 

@@ -3,6 +3,7 @@ package llm
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hunterwarburton/ya8hoda/internal/telegram"
 )
@@ -26,12 +27,14 @@ func (pg *PromptGenerator) GenerateSystemPrompt() string {
 
 // GenerateSystemPromptWithUserInfo creates a system prompt that includes user information.
 func (pg *PromptGenerator) GenerateSystemPromptWithUserInfo(userInfo *telegram.UserInfo) string {
+	currentTime := time.Now().Format(time.RFC1123)
+
 	if pg.character == nil {
 		if userInfo != nil {
-			return fmt.Sprintf("You are a helpful assistant talking to %s (ID: %d).",
-				userInfo.FullName, userInfo.ID)
+			return fmt.Sprintf("You are a helpful assistant talking to %s (ID: %d). The current time is %s.",
+				userInfo.FullName, userInfo.ID, currentTime)
 		}
-		return "You are a helpful assistant."
+		return fmt.Sprintf("You are a helpful assistant. The current time is %s.", currentTime)
 	}
 
 	var builder strings.Builder
@@ -46,6 +49,9 @@ func (pg *PromptGenerator) GenerateSystemPromptWithUserInfo(userInfo *telegram.U
 		builder.WriteString(fmt.Sprintf("You are currently talking to %s (ID: %d). ",
 			userInfo.FullName, userInfo.ID))
 	}
+
+	// Add the current time
+	builder.WriteString(fmt.Sprintf("The current time is %s. ", currentTime))
 
 	builder.WriteString("The following is your background to pull from when relevant:")
 	builder.WriteString("\n\n")

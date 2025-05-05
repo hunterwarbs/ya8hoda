@@ -243,12 +243,15 @@ func (b *Bot) handleCommand(ctx context.Context, message *models.Message) {
 			ParseMode: "MarkdownV2",
 		})
 
+		// Get the prompt *before* locking
+		systemPrompt := b.getSystemPrompt(message.Chat.ID)
+
 		// Initialize a fresh session
 		b.mutex.Lock()
 		b.sessions[message.Chat.ID] = []Message{
 			{
 				Role:    "system",
-				Content: b.getSystemPrompt(message.Chat.ID),
+				Content: systemPrompt,
 			},
 		}
 		b.mutex.Unlock()

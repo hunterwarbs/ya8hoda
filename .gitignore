@@ -28,4 +28,5 @@ tmp/
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo
+/models/BAAI/ 
