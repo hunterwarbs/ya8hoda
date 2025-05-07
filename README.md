@@ -53,36 +53,36 @@ The typical flow of a message through the system is as follows:
 ```mermaid
 graph TD
 
-    subgraph sg_telegram ["Telegram"]
+    subgraph sg_telegram ["Telegram (internal/telegram/bot.go)"]
         direction TB
         User["Telegram User"]
         TelegramAPI["Telegram API"]
     end
 
-    subgraph sg_bot_entry ["Ya8hoda Bot"]
+    subgraph sg_bot_entry ["Ya8hoda Bot (cmd/bot/)"]
         direction TB
         Ya8hodaBot["Ya8hoda Bot Service"]
-        AuthService["Authentication (Optional)"]
-        CallOpenRouter["Call OpenRouter"]
+        AuthService["Authentication (internal/auth/)"]
+        CallOpenRouter["Call OpenRouter (internal/llm/)"]
         
         Ya8hodaBot --> |"Authenticates User"| AuthService
         Ya8hodaBot <--> |"Sends Query/Returns Response"| CallOpenRouter
     end
 
-    subgraph sg_embedding ["Embedding Service"]
+    subgraph sg_embedding ["Embedding Service (internal/embed/)"]
         direction TB
-        EmbeddingSvc["Embedding Generation"]
+        EmbeddingSvc["Embedding Generation (tools/models/BAAI/bge-m3/)"]
     end
     
-    subgraph sg_tool_execution ["Tool Execution"]
+    subgraph sg_tool_execution ["Tool Execution (internal/tools/)"]
         direction TB
         ToolHandler["Tool Router"]
-        AvailableTools["Available LLM Tools"]
+        AvailableTools["Available LLM Tools (tools-spec/)"]
 
         ToolHandler <--> |"Executes/Returns Results"| AvailableTools
     end
 
-    subgraph sg_milvus_db ["Vector Database (Milvus)"]
+    subgraph sg_milvus_db ["Vector Database (internal/rag/, data/milvus/)"]
         direction TB
         PeopleFacts["People Facts Collection"]
         CommunityFacts["Community Facts Collection"]
