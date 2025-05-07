@@ -51,80 +51,68 @@ The typical flow of a message through the system is as follows:
 ### Visual Flow (Mermaid Diagram)
 
 ```mermaid
-architecture-beta
-    %% Group Definitions
-    %% Main vertical stack
-    group user_interaction_grp(box)["User Interaction & Bot Entry"]
-        service usr(user)["Telegram User"] in user_interaction_grp
-        service api(generic-api)["Telegram API"] in user_interaction_grp
-        service bot(application-server)["Ya8hoda Bot Service"] in user_interaction_grp
-        service auth(security-camera)["Authentication (Optional)"] in user_interaction_grp
+flowchart TD
+    %% ====================== Subgraphs ======================
+    subgraph sg_user_interaction ["User Interaction & Bot Entry"]
+        direction TB
+        ui_user["Telegram User"]
+        ui_api["Telegram API"]
+        ui_bot["Ya8hoda Bot Service"]
+        ui_auth["Authentication (Optional)"]
+
+        ui_user -- "Sends Message" --> ui_api
+        ui_api  -- "Forwards Message" --> ui_bot
+        ui_bot  -- "Authenticates User" --> ui_auth
     end
 
-    group llm_orchestration_grp(box)["LLM Orchestration"]
-        service llm(robot)["LLM Service"] in llm_orchestration_grp
-        service ext_llm(generic-api)["External LLM API"] in llm_orchestration_grp
+    subgraph sg_llm_orch ["LLM Orchestration"]
+        direction TB
+        llm_svc["LLM Service"]
+        ext_llm["External LLM API"]
+
+        llm_svc -- "Sends Query / Context" --> ext_llm
+        ext_llm -- "Returns Response / Tool Suggestion" --> llm_svc
     end
 
-    group tool_execution_grp(box)["Tool Execution"]
-        service router(fork)["Tool Router"] in tool_execution_grp
-        service tools(settings)["Available LLM Tools"] in tool_execution_grp
+    subgraph sg_tool_exec ["Tool Execution"]
+        direction TB
+        tool_router["Tool Router"]
+        llm_tools["Available LLM Tools"]
+
+        tool_router -- "Executes" --> llm_tools
     end
 
-    group milvus_db_grp(box)["Vector Database (Milvus)"]
-        service pf(database)["People Facts Collection"] in milvus_db_grp
-        service cf(database)["Community Facts Collection"] in milvus_db_grp
-        service bf(database)["Bot Facts Collection"] in milvus_db_grp
+    subgraph sg_vector_db ["Vector Database (Milvus)"]
+        direction TB
+        db_people["People Facts Collection"]
+        db_comm["Community Facts Collection"]
+        db_bot["Bot Facts Collection"]
     end
 
-    %% Side group
-    group embedding_grp(box)["Embedding Service"]
-        service embed_svc(brain)["Embedding Generation"] in embedding_grp
+    subgraph sg_embedding ["Embedding Service"]
+        direction TB
+        embed_svc["Embedding Generation"]
     end
 
-    %% Connections
+    %% ====================== Inter-Module Flow ======================
+    %% Vertical stack alignment
+    ui_bot -- "Embeds User Query" --> embed_svc
+    embed_svc -- "User Query Embedding" --> ui_bot
+    ui_bot --> llm_svc
 
-    %% User Interaction Flow (Top group)
-    usr:B      -- "Sends Message"                     :T api
-    api:B      -- "Forwards Message"                  :T bot
-    bot:R      -- "Authenticates User"                :L auth  %% Auth as a side-check within its group
+    llm_svc -- "If Tool Needed, Invokes" --> tool_router
+    tool_router -- "Tool Result" --> llm_svc
 
-    %% Bot to Embedding Service (Bot is in top group, Embedding is side group)
-    bot:R      -- "Embeds User Query"                 :L embed_svc
-    embed_svc:L -- "User Query Embedding"             :R bot
+    llm_tools -- "Write / Retrieve" --> db_people
+    llm_tools -- "Write / Retrieve" --> db_comm
+    llm_tools -- "Write / Retrieve" --> db_bot
 
-    %% Bot to LLM Service (Bot in top group to LLM in second group - downward)
-    bot:B      -- "To LLM Service"                    :T llm
+    llm_tools -- "Embedding for Storage" --> embed_svc
+    embed_svc  -- "Returns Embedding" --> llm_tools
 
-    %% LLM Orchestration (Second group)
-    llm:B      -- "Sends Query/Context"               :T ext_llm
-    ext_llm:T  -- "Returns Response/Tool Suggestion"  :B llm
-
-    %% LLM to Tool Execution (LLM in second group to Router in third group - downward)
-    llm:B      -- "If Tool Needed, Invokes"           :T router
-
-    %% Tool Execution (Third group)
-    router:B   -- "Executes"                          :T tools
-
-    %% Tool Execution to Embedding Service (Tools in third group, Embedding is side group)
-    tools:R    -- "Write Operations (via Embedding)"  :L embed_svc
-    embed_svc:L -- "Embedding for Storage"            :R tools
-
-    %% Tool Execution to Milvus (Tools in third group to DB items in fourth group - downward)
-    tools:B    -- "Stores/Retrieves Data"             :T pf
-    tools:B    -- "Stores/Retrie Retrieves Data"      :T cf %% Mermaid might consolidate these if from same port
-    tools:B    -- "Stores/Retrieves Data"             :T bf
-
-    %% Return Paths
-    %% Tool Result (Router in third group) to LLM (LLM in second group - upward)
-    router:T   -- "Tool Result"                       :B llm
-
-    %% Final Response (LLM in second group) to Bot (Bot in top group - upward)
-    llm:T      -- "Final Response"                    :B bot
-
-    %% Sends Response (Bot in top group) to API (API in top group - upward within group)
-    bot:T      -- "Sends Response"                    :B api
-    api:T      -- "Delivers Response"                 :B usr
+    llm_svc -- "Final Response" --> ui_bot
+    ui_bot  -- "Sends Response" --> ui_api
+    ui_api  -- "Delivers Response" --> ui_user
 ```
 
 ### Key Data Stores & Integrations
