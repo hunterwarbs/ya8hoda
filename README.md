@@ -51,68 +51,58 @@ The typical flow of a message through the system is as follows:
 ### Visual Flow (Mermaid Diagram)
 
 ```mermaid
-flowchart TD
-    %% ====================== Subgraphs ======================
-    subgraph sg_user_interaction ["User Interaction & Bot Entry"]
-        direction TB
-        ui_user["Telegram User"]
-        ui_api["Telegram API"]
-        ui_bot["Ya8hoda Bot Service"]
-        ui_auth["Authentication (Optional)"]
+graph TD
 
-        ui_user -- "Sends Message" --> ui_api
-        ui_api  -- "Forwards Message" --> ui_bot
-        ui_bot  -- "Authenticates User" --> ui_auth
+    subgraph sg_telegram ["Telegram"]
+        direction TB
+        User["Telegram User"]
+        TelegramAPI["Telegram API"]
     end
 
-    subgraph sg_llm_orch ["LLM Orchestration"]
+    subgraph sg_bot_entry ["Ya8hoda Bot"]
         direction TB
-        llm_svc["LLM Service"]
-        ext_llm["External LLM API"]
-
-        llm_svc -- "Sends Query / Context" --> ext_llm
-        ext_llm -- "Returns Response / Tool Suggestion" --> llm_svc
-    end
-
-    subgraph sg_tool_exec ["Tool Execution"]
-        direction TB
-        tool_router["Tool Router"]
-        llm_tools["Available LLM Tools"]
-
-        tool_router -- "Executes" --> llm_tools
-    end
-
-    subgraph sg_vector_db ["Vector Database (Milvus)"]
-        direction TB
-        db_people["People Facts Collection"]
-        db_comm["Community Facts Collection"]
-        db_bot["Bot Facts Collection"]
+        Ya8hodaBot["Ya8hoda Bot Service"]
+        AuthService["Authentication (Optional)"]
+        CallOpenRouter["Call OpenRouter"]
+        
+        Ya8hodaBot --> |"Authenticates User"| AuthService
+        Ya8hodaBot <--> |"Sends Query/Returns Response"| CallOpenRouter
     end
 
     subgraph sg_embedding ["Embedding Service"]
         direction TB
-        embed_svc["Embedding Generation"]
+        EmbeddingSvc["Embedding Generation"]
+    end
+    
+    subgraph sg_tool_execution ["Tool Execution"]
+        direction TB
+        ToolHandler["Tool Router"]
+        AvailableTools["Available LLM Tools"]
+
+        ToolHandler <--> |"Executes/Returns Results"| AvailableTools
     end
 
-    %% ====================== Inter-Module Flow ======================
-    %% Vertical stack alignment
-    ui_bot -- "Embeds User Query" --> embed_svc
-    embed_svc -- "User Query Embedding" --> ui_bot
-    ui_bot --> llm_svc
+    subgraph sg_milvus_db ["Vector Database (Milvus)"]
+        direction TB
+        PeopleFacts["People Facts Collection"]
+        CommunityFacts["Community Facts Collection"]
+        BotFacts["Bot Facts Collection"]
+    end
 
-    llm_svc -- "If Tool Needed, Invokes" --> tool_router
-    tool_router -- "Tool Result" --> llm_svc
+    %% Connections between Telegram and Bot
+    User <--> |"Sends/Receives Messages"| TelegramAPI
+    TelegramAPI <--> |"Forwards/Returns Messages"| Ya8hodaBot
 
-    llm_tools -- "Write / Retrieve" --> db_people
-    llm_tools -- "Write / Retrieve" --> db_comm
-    llm_tools -- "Write / Retrieve" --> db_bot
+    %% Main Orchestration
+    Ya8hodaBot <--> |"Embeds/Returns Embeddings"| EmbeddingSvc
+    
+    CallOpenRouter <--> |"Tool Invocation/Results"| ToolHandler
 
-    llm_tools -- "Embedding for Storage" --> embed_svc
-    embed_svc  -- "Returns Embedding" --> llm_tools
-
-    llm_svc -- "Final Response" --> ui_bot
-    ui_bot  -- "Sends Response" --> ui_api
-    ui_api  -- "Delivers Response" --> ui_user
+    %% Tool Interactions (Abstracted)
+    AvailableTools <--> |"Embedding Operations"| EmbeddingSvc
+    AvailableTools <--> |"Stores/Retrieves Data"| PeopleFacts
+    AvailableTools <--> |"Stores/Retrieves Data"| CommunityFacts
+    AvailableTools <--> |"Stores/Retrieves Data"| BotFacts
 ```
 
 ### Key Data Stores & Integrations
