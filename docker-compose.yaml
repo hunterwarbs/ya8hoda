@@ -17,7 +17,7 @@ services:
       - IN_DOCKER_COMPOSE=true
       - MILVUS_ADDRESS=milvus-standalone:19530
       - EMBEDDING_API_URL=http://bge-embedding:8000
-      - FRESH_START=true
+      #- FRESH_START=true
 
   bge-embedding:
     container_name: bge-embedding
