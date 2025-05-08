@@ -114,11 +114,10 @@ func (pg *PromptGenerator) GenerateSystemPromptWithUserInfoAndContext(userInfo *
 		}
 		builder.WriteString("\n")
 	}
-
 	// Add user information if available
 	if userInfo != nil {
-		builder.WriteString(fmt.Sprintf("You are currently talking to %s (ID: %d) on Telegram. \n\n ",
-			userInfo.FullName, userInfo.ID))
+		builder.WriteString(fmt.Sprintf("You are currently talking to %s (username: %s) (ID: %d) on Telegram. \n\n ",
+			userInfo.FullName, userInfo.Username, userInfo.ID))
 	}
 
 	// Provide the current time in all relevant time zones
