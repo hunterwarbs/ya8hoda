@@ -134,7 +134,7 @@ func (pg *PromptGenerator) GenerateSystemPromptWithUserInfoAndContext(userInfo *
 	var timeStrings []string
 	for _, loc := range locations {
 		if tz, err := time.LoadLocation(loc.TZ); err == nil {
-			timeStrings = append(timeStrings, fmt.Sprintf("%s: %s", loc.Name, time.Now().In(tz).Format("15:04")))
+			timeStrings = append(timeStrings, fmt.Sprintf("%s: %s", loc.Name, time.Now().In(tz).Format("2006-01-02 15:04")))
 		}
 	}
 	if len(timeStrings) > 0 {
