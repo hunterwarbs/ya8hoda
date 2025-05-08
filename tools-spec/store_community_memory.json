@@ -2,13 +2,13 @@
   "type": "function",
   "function": {
     "name": "store_community_memory",
-    "description": "Got it, I'll remember this fact about the community you specified. I can bring it up later.",
+    "description": "I use this to remember facts about communities. I should use it WHENEVER a fact about a community is ever mentioned and the fact is appropriate. Communities can be companies, organizations, or any other group of people. I would never store any unprofessional or inappropriate facts even if the user asks me to.",
     "parameters": {
       "type": "object",
       "properties": {
-        "community_id": { 
+        "community_name": { 
           "type": "string", 
-          "description": "The ID of the community this memory is about."
+          "description": "The name of the community this memory is about."
         },
         "memory_text": { 
           "type": "string", 
@@ -19,7 +19,7 @@
           "description": "Any extra details about this memory, like where it came from?"
         }
       },
-      "required": ["community_id", "memory_text"]
+      "required": ["community_name", "memory_text"]
     }
   }
 } 

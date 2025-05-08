@@ -97,19 +97,19 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 
 	case "store_community_memory":
 		var args struct {
-			CommunityID string                 `json:"community_id"`
-			MemoryText  string                 `json:"memory_text"`
-			Metadata    map[string]interface{} `json:"metadata"`
+			CommunityName string                 `json:"community_name"`
+			MemoryText    string                 `json:"memory_text"`
+			Metadata      map[string]interface{} `json:"metadata"`
 		}
 		if err = json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return "", fmt.Errorf("failed to parse store_community_memory arguments: %w", err)
 		}
 		logger.Debug("Parsed store_community_memory arguments: %+v", args)
-		if args.MemoryText == "" || args.CommunityID == "" {
-			return "", fmt.Errorf("memory_text and community_id are required for store_community_memory")
+		if args.MemoryText == "" || args.CommunityName == "" {
+			return "", fmt.Errorf("memory_text and community_name are required for store_community_memory")
 		}
-		// Call the RAGService interface method for storing community memory
-		result, err = r.rag.RememberAboutCommunity(ctx, args.CommunityID, args.MemoryText, args.Metadata)
+		// Call the RAGService interface method for storing community memory (using name as identifier)
+		result, err = r.rag.RememberAboutCommunity(ctx, args.CommunityName, args.MemoryText, args.Metadata)
 		if err != nil {
 			return "", fmt.Errorf("failed to execute store_community_memory: %w", err)
 		}
@@ -142,9 +142,9 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 
 	case "remember_about_community":
 		var args struct {
-			CommunityID string `json:"community_id,omitempty"` // Optional, searches all if empty
-			Query       string `json:"query"`
-			K           int    `json:"k"`
+			CommunityName string `json:"community_name,omitempty"` // Optional, searches all if empty
+			Query         string `json:"query"`
+			K             int    `json:"k"`
 		}
 		if err = json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return "", fmt.Errorf("failed to parse remember_about_community arguments: %w", err)
@@ -156,9 +156,9 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 		if args.K <= 0 {
 			args.K = 5 // Default
 		}
-		// Call the RAGService interface method for searching community memory
+		// Call the RAGService interface method for searching community memory (using name as identifier)
 		var searchResults []core.SearchResult
-		searchResults, err = r.rag.SearchCommunityMemory(ctx, args.Query, args.CommunityID, args.K)
+		searchResults, err = r.rag.SearchCommunityMemory(ctx, args.Query, args.CommunityName, args.K)
 		if err != nil {
 			return "", fmt.Errorf("failed to execute remember_about_community: %w", err)
 		}

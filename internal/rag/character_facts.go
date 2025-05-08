@@ -121,14 +121,15 @@ func loadCharacterFacts(ctx context.Context, milvusWrapper *MilvusClient, rawMil
 			"character": characterName, // Add character name to metadata
 		}
 
-		// Use the StoreBotFact function via the wrapper
-		// StoreBotFact now internally handles the primary key generation or uses the provided one.
+		// Use the StoreBotFactWithID function via the wrapper
+		// StoreBotFactWithID now internally handles the primary key generation or uses the provided one.
 		// We pass the fact text, metadata, and embedding.
-		_, insertErr := milvusWrapper.StoreBotFact(ctx,
-			characterName, // Pass characterName as the 'name' field
-			fact,          // Pass the raw fact text
-			metadata,      // Pass the prepared metadata
-			embedding,     // Pass the whole embedding struct
+		_, insertErr := milvusWrapper.StoreBotFactWithID(ctx,
+			id,            // Deterministic primary key
+			characterName, // 'name' field
+			fact,          // Raw fact text
+			metadata,      // Metadata
+			embedding,     // Full embedding (dense + sparse)
 		)
 		if insertErr != nil {
 			logger.Error("Failed to store fact ID %s: %v", id, insertErr)

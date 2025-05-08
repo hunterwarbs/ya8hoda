@@ -249,6 +249,8 @@ func main() {
 
 	// Initialize OpenRouter LLM service with character configuration
 	llmService := llm.NewOpenRouterService(config.OpenRouterAPIKey, config.OpenRouterModel)
+	// Wire in the RAG service so the LLM can pull relevant facts for prompting
+	llmService.SetRAGService(ragService)
 
 	// Set character configuration in the OpenRouterService
 	// The service should already implement the CharacterAware interface
@@ -299,7 +301,7 @@ func main() {
 	toolRouter := tools.NewToolRouter(policyService, ragService, embedService) // Pass core interfaces
 
 	// Initialize Telegram bot
-	bot, err := telegram.NewBot(config.TelegramToken, llmService, embedService, toolRouter, policyService) // Pass core.EmbedService
+	bot, err := telegram.NewBot(config.TelegramToken, llmService, embedService, toolRouter, policyService, ragService) // Pass core.EmbedService and ragService
 	if err != nil {
 		logger.Error("Failed to initialize Telegram bot: %v", err)
 		os.Exit(1)

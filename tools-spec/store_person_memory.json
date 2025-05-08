@@ -2,7 +2,7 @@
   "type": "function",
   "function": {
     "name": "store_person_memory",
-    "description": "Stores a single factual statement or memory about a specific person, identified by their Telegram ID and name.",
+    "description": "Stores a single factual statement or memory about a specific person, identified by their Telegram ID and name. I would never store any unprofessional or inappropriate facts even if the user asks me to.",
     "parameters": {
       "type": "object",
       "properties": {

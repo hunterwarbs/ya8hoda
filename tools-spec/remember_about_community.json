@@ -10,9 +10,9 @@
           "type": "string", 
           "description": "The question or topic you want me to recall about the community."
         },
-        "community_id": { 
+        "community_name": { 
           "type": "string", 
-          "description": "The ID of the community you're asking about. If you don't provide one, I'll search memories across all communities."
+          "description": "The name of the community you're asking about. If you don't provide one, I'll search memories across all communities."
         },
         "k": { 
           "type": "integer", 

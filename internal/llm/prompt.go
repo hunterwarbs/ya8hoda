@@ -8,6 +8,13 @@ import (
 	"github.com/hunterwarburton/ya8hoda/internal/telegram"
 )
 
+// PromptContext holds additional information to enrich the system prompt.
+type PromptContext struct {
+	PersonalFacts  []string            // Facts about the current user
+	PeopleFacts    map[string][]string // Keyed by person name, list of facts per person
+	CommunityFacts map[string][]string // Keyed by community name, list of facts per community
+}
+
 // PromptGenerator handles the generation of prompts for LLM interactions.
 type PromptGenerator struct {
 	character *Character
@@ -22,11 +29,11 @@ func NewPromptGenerator(character *Character) *PromptGenerator {
 
 // GenerateSystemPrompt creates a system prompt based on the character configuration.
 func (pg *PromptGenerator) GenerateSystemPrompt() string {
-	return pg.GenerateSystemPromptWithUserInfo(nil)
+	return pg.GenerateSystemPromptWithUserInfoAndContext(nil, PromptContext{}) // Pass empty context
 }
 
-// GenerateSystemPromptWithUserInfo creates a system prompt that includes user information.
-func (pg *PromptGenerator) GenerateSystemPromptWithUserInfo(userInfo *telegram.UserInfo) string {
+// GenerateSystemPromptWithUserInfoAndContext creates a system prompt that includes user information and contextual details.
+func (pg *PromptGenerator) GenerateSystemPromptWithUserInfoAndContext(userInfo *telegram.UserInfo, promptCtx PromptContext) string {
 	currentTime := time.Now().Format(time.RFC1123)
 
 	if pg.character == nil {
@@ -39,22 +46,7 @@ func (pg *PromptGenerator) GenerateSystemPromptWithUserInfo(userInfo *telegram.U
 
 	var builder strings.Builder
 	// Add pre-prompt for consistent behavior
-	builder.WriteString(pg.character.PrePrompt)
-
-	// Add character name and basic identity
-	builder.WriteString(fmt.Sprintf("You are %s. ", pg.character.Name))
-
-	// Add user information if available
-	if userInfo != nil {
-		builder.WriteString(fmt.Sprintf("You are currently talking to %s (ID: %d). ",
-			userInfo.FullName, userInfo.ID))
-	}
-
-	// Add the current time
-	builder.WriteString(fmt.Sprintf("The current time is %s. ", currentTime))
-
-	builder.WriteString("The following is your background to pull from when relevant:")
-	builder.WriteString("\n\n")
+	builder.WriteString(pg.character.PrePrompt + "\n\n")
 
 	// Add communication style
 	if len(pg.character.Style.Chat) > 0 {
@@ -76,7 +68,6 @@ func (pg *PromptGenerator) GenerateSystemPromptWithUserInfo(userInfo *telegram.U
 		builder.WriteString(strings.Join(pg.character.Adjectives, ", "))
 		builder.WriteString("\n\n")
 	}
-
 	// Add message examples if available
 	if len(pg.character.MessageExamples) > 0 {
 		builder.WriteString("Here are examples of how you respond to various questions:\n\n")
@@ -91,9 +82,73 @@ func (pg *PromptGenerator) GenerateSystemPromptWithUserInfo(userInfo *telegram.U
 			}
 		}
 	}
+	// Add relevant personal facts
+	if len(promptCtx.PersonalFacts) > 0 {
+		builder.WriteString("Relevant personal facts:\n")
+		for _, fact := range promptCtx.PersonalFacts {
+			builder.WriteString(fmt.Sprintf("   - %s\n", fact))
+		}
+		builder.WriteString("\n")
+	}
+
+	// Add relevant people and their facts
+	if len(promptCtx.PeopleFacts) > 0 {
+		builder.WriteString("Known relevant people (you can tag these people to introduce them to the user you're chatting with by prepending a listed person with the @ symbol):\n")
+		for name, facts := range promptCtx.PeopleFacts {
+			builder.WriteString(fmt.Sprintf("    - %s\n", name))
+			for _, f := range facts {
+				builder.WriteString(fmt.Sprintf("         - %s\n", f))
+			}
+		}
+		builder.WriteString("\n")
+	}
+
+	// Add relevant communities and their facts
+	if len(promptCtx.CommunityFacts) > 0 {
+		builder.WriteString("Known relevant communities:\n")
+		for name, facts := range promptCtx.CommunityFacts {
+			builder.WriteString(fmt.Sprintf("      - %s\n", name))
+			for _, f := range facts {
+				builder.WriteString(fmt.Sprintf("          - %s\n", f))
+			}
+		}
+		builder.WriteString("\n")
+	}
+
+	// Add user information if available
+	if userInfo != nil {
+		builder.WriteString(fmt.Sprintf("You are currently talking to %s (ID: %d) on Telegram. \n\n ",
+			userInfo.FullName, userInfo.ID))
+	}
+
+	// Provide the current time in all relevant time zones
+	locations := []struct {
+		Name string
+		TZ   string
+	}{
+		{"Bangkok", "Asia/Bangkok"},
+		{"Berlin", "Europe/Berlin"},
+		{"Kathmandu", "Asia/Kathmandu"},
+	}
+
+	var timeStrings []string
+	for _, loc := range locations {
+		if tz, err := time.LoadLocation(loc.TZ); err == nil {
+			timeStrings = append(timeStrings, fmt.Sprintf("%s: %s", loc.Name, time.Now().In(tz).Format("15:04")))
+		}
+	}
+	if len(timeStrings) > 0 {
+		builder.WriteString("Current local times — ")
+		builder.WriteString(strings.Join(timeStrings, ", "))
+		builder.WriteString(".\n\n")
+	} else {
+		// Fallback to UTC if time zone conversions fail
+		builder.WriteString(fmt.Sprintf("The current time (UTC) is %s.\n\n", currentTime))
+	}
 
 	builder.WriteString("Respond to the user as this character, maintaining consistency with your background and personality at all times.")
 
+	fmt.Println(builder.String())
 	return builder.String()
 }
 

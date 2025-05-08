@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +83,7 @@ type Bot struct {
 	embed         core.EmbedService
 	toolRouter    ToolRouter
 	policyService PolicyService
+	rag           core.RAGService
 	sessions      map[int64][]Message
 	userInfo      map[int64]*UserInfo // Store user information by chat ID
 	mutex         sync.RWMutex
@@ -90,12 +92,13 @@ type Bot struct {
 }
 
 // NewBot creates a new bot instance.
-func NewBot(token string, llm LLMService, embed core.EmbedService, toolRouter ToolRouter, policyService PolicyService) (*Bot, error) {
+func NewBot(token string, llm LLMService, embed core.EmbedService, toolRouter ToolRouter, policyService PolicyService, rag core.RAGService) (*Bot, error) {
 	b := &Bot{
 		llm:           llm,
 		embed:         embed,
 		toolRouter:    toolRouter,
 		policyService: policyService,
+		rag:           rag,
 		sessions:      make(map[int64][]Message),
 		userInfo:      make(map[int64]*UserInfo),
 		mutex:         sync.RWMutex{},
@@ -220,6 +223,31 @@ func (b *Bot) updateUserInfo(message *models.Message) {
 	b.mutex.Unlock()
 
 	logger.TelegramDebug("Updated user info for chat %d: %s (ID: %d)", message.Chat.ID, fullName, message.From.ID)
+
+	// Attempt to store username/display name facts (duplicate inserts are ignored in the DB)
+	if b.rag != nil && message.From.Username != "" {
+		go func(telegramID int64, username, displayName string) {
+			telegramIDStr := strconv.FormatInt(telegramID, 10)
+
+			// Store username fact
+			usernameFact := fmt.Sprintf("Their telegram username is @%s", username)
+			if _, err := b.rag.RememberAboutPerson(context.Background(), telegramIDStr, username, usernameFact, map[string]interface{}{"source": "telegram", "type": "account_info"}); err != nil {
+				logger.TelegramWarn("Failed to store username fact for user %d: %v", telegramID, err)
+			} else {
+				logger.TelegramDebug("Stored username fact for user %d", telegramID)
+			}
+
+			// Store display name fact (if available and different)
+			if displayName != "" {
+				displayNameFact := fmt.Sprintf("Their telegram display name is %s", displayName)
+				if _, err := b.rag.RememberAboutPerson(context.Background(), telegramIDStr, username, displayNameFact, map[string]interface{}{"source": "telegram", "type": "account_info"}); err != nil {
+					logger.TelegramWarn("Failed to store display name fact for user %d: %v", telegramID, err)
+				} else {
+					logger.TelegramDebug("Stored display name fact for user %d", telegramID)
+				}
+			}
+		}(message.From.ID, message.From.Username, fullName)
+	}
 }
 
 // handleCommand processes a command message.
@@ -413,18 +441,18 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 					// Inject person_name if not present
 					if _, exists := args["person_name"]; !exists {
 						b.mutex.RLock()
-						callingUserInfo := b.userInfo[chatID] // Get info of the user making the call
+						callingUserInfo := b.userInfo[chatID]
 						b.mutex.RUnlock()
 						if callingUserInfo != nil {
-							personName := callingUserInfo.FullName
-							if personName == "" {
-								personName = callingUserInfo.Username // Fallback to username
+							personName := callingUserInfo.Username
+							if personName == "" { // fallback if no username
+								personName = callingUserInfo.FullName
 							}
 							if personName != "" {
 								args["person_name"] = personName
 								logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
 							} else {
-								logger.ToolWarn("Chat[%d]: Could not find name for user %d to inject into %s", chatID, userID, toolName)
+								logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s", chatID, userID, toolName)
 							}
 						} else {
 							logger.ToolWarn("Chat[%d]: User info not found for user %d to inject name into %s", chatID, userID, toolName)
@@ -634,18 +662,18 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 					// Inject person_name if not present
 					if _, exists := args["person_name"]; !exists {
 						b.mutex.RLock()
-						callingUserInfo := b.userInfo[chatID] // Get info of the user making the call
+						callingUserInfo := b.userInfo[chatID]
 						b.mutex.RUnlock()
 						if callingUserInfo != nil {
-							personName := callingUserInfo.FullName
-							if personName == "" {
-								personName = callingUserInfo.Username // Fallback to username
+							personName := callingUserInfo.Username
+							if personName == "" { // fallback if no username
+								personName = callingUserInfo.FullName
 							}
 							if personName != "" {
 								args["person_name"] = personName
 								logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
 							} else {
-								logger.ToolWarn("Chat[%d]: Could not find name for user %d to inject into %s", chatID, userID, toolName)
+								logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s", chatID, userID, toolName)
 							}
 						} else {
 							logger.ToolWarn("Chat[%d]: User info not found for user %d to inject name into %s", chatID, userID, toolName)

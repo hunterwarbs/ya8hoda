@@ -2,7 +2,7 @@
   "type": "function",
   "function": {
     "name": "store_self_memory",
-    "description": "Okay, I'll store this fact about myself. This helps me learn and remember who I am. (Only admins can ask me to do this).",
+    "description": "Okay, I'll store this fact about myself. This helps me learn and remember who I am.",
     "parameters": {
       "type": "object",
       "properties": {

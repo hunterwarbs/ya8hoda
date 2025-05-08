@@ -2,6 +2,8 @@ package rag
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -40,6 +42,7 @@ type MilvusClient struct {
 	client       *milvusclient.Client
 	embed        core.EmbedService
 	embeddingDim int
+	// caching fields removed – prompt context is built on-demand each query
 }
 
 // Document definition removed (moved to internal/core)
@@ -296,8 +299,10 @@ func (c *MilvusClient) StoreFact(ctx context.Context, collection, ownerID, name,
 	metadata map[string]interface{}, denseVector []float32, sparseIndices []int,
 	sparseValues []float32, sparseShape []int) (string, error) {
 
-	// Generate a unique ID for the fact
-	factID := fmt.Sprintf("fact_%d", time.Now().UnixNano())
+	// Deterministic fact ID based on collection, owner, name & text
+	hasher := sha256.New()
+	hasher.Write([]byte(collection + "|" + ownerID + "|" + name + "|" + text))
+	factID := "fact_" + hex.EncodeToString(hasher.Sum(nil))[:32] // first 32 chars for brevity
 	now := time.Now().Unix()
 
 	// Create a sparse vector representation using Milvus entity type
@@ -348,6 +353,13 @@ func (c *MilvusClient) StoreFact(ctx context.Context, collection, ownerID, name,
 	insertOpt := milvusclient.NewRowBasedInsertOption(collection, row)
 	_, err := c.client.Insert(ctx, insertOpt)
 	if err != nil {
+		// Check for duplicate primary key error and treat as success
+		errMsg := err.Error()
+		if strings.Contains(strings.ToLower(errMsg), "duplicate") || strings.Contains(strings.ToLower(errMsg), "primary key") {
+			log.Printf("Duplicate fact (ID=%s) ignored for collection %s", factID, collection)
+			return factID, nil
+		}
+
 		// Log the row data for debugging (excluding potentially large vectors)
 		debugRow := make(map[string]interface{})
 		for k, v := range row {
@@ -383,7 +395,7 @@ func (c *MilvusClient) StoreBotFact(ctx context.Context, name, text string, meta
 	sparseValues := embedding.Sparse.Values
 	sparseShape := embedding.Sparse.Shape
 
-	if denseVector == nil || len(denseVector) == 0 {
+	if denseVector == nil {
 		return "", fmt.Errorf("dense vector is required for StoreBotFact")
 	}
 	if sparseIndices == nil || sparseValues == nil || sparseShape == nil {
@@ -398,6 +410,79 @@ func (c *MilvusClient) StoreBotFact(ctx context.Context, name, text string, meta
 	}
 
 	return c.StoreFact(ctx, BotFactsCollection, "", name, text, metadata, denseVector, sparseIndices, sparseValues, sparseShape)
+}
+
+// StoreBotFactWithID stores a bot fact but allows callers to provide a deterministic primary key
+// (factID). This is useful for idempotent operations like loading character facts where we
+// want to avoid inserting duplicates on subsequent runs.
+func (c *MilvusClient) StoreBotFactWithID(ctx context.Context, factID string, name, text string, metadata map[string]interface{}, embedding core.EmbeddingVector) (string, error) {
+	if factID == "" {
+		return "", fmt.Errorf("factID must be provided for StoreBotFactWithID")
+	}
+
+	// Extract components from the embedding
+	denseVector := embedding.Dense
+	sparseIndices := embedding.Sparse.Indices
+	sparseValues := embedding.Sparse.Values
+	sparseShape := embedding.Sparse.Shape
+
+	if denseVector == nil {
+		return "", fmt.Errorf("dense vector is required for StoreBotFactWithID")
+	}
+	if sparseIndices == nil || sparseValues == nil || sparseShape == nil {
+		return "", fmt.Errorf("sparse vector components are required for StoreBotFactWithID")
+	}
+
+	// Build sparse embedding entity (similar logic to StoreFact)
+	var sparseVecData entity.SparseEmbedding
+	if len(sparseIndices) > 0 && len(sparseValues) > 0 && c.SupportsSparseEmbeddings() {
+		uindices := make([]uint32, len(sparseIndices))
+		for i, v := range sparseIndices {
+			uindices[i] = uint32(v)
+		}
+		var err error
+		sparseVecData, err = entity.NewSliceSparseEmbedding(uindices, sparseValues)
+		if err != nil {
+			return "", fmt.Errorf("failed to create sparse embedding entity: %w", err)
+		}
+	} else {
+		sparseVecData, _ = entity.NewSliceSparseEmbedding([]uint32{}, []float32{})
+		if c.SupportsSparseEmbeddings() {
+			log.Printf("Warning: No sparse data provided for fact %s, using empty sparse vector.", factID)
+		}
+	}
+
+	// Prepare row data explicitly so we can control the primary key
+	row := map[string]interface{}{}
+	row[FieldID] = factID
+	row[FieldOwnerID] = "" // No owner for bot facts
+	row[FieldName] = name
+	row[FieldText] = text
+	row[FieldDenseVector] = denseVector
+	if c.SupportsSparseEmbeddings() {
+		row["sparse"] = sparseVecData
+	}
+	row[FieldCreatedAt] = time.Now().Unix()
+	if metadata == nil {
+		row[FieldMetadata] = map[string]interface{}{}
+	} else {
+		row[FieldMetadata] = metadata
+	}
+
+	insertOpt := milvusclient.NewRowBasedInsertOption(BotFactsCollection, row)
+	_, err := c.client.Insert(ctx, insertOpt)
+	if err != nil {
+		debugRow := map[string]interface{}{}
+		for k, v := range row {
+			if k != FieldDenseVector && k != "sparse" {
+				debugRow[k] = v
+			}
+		}
+		log.Printf("Error inserting row with ID %s: %v\nRow data (partial): %+v", factID, err, debugRow)
+		return "", fmt.Errorf("failed to insert fact: %w", err)
+	}
+
+	return factID, nil
 }
 
 // SearchFacts performs a search, potentially using hybrid vectors if available.
@@ -600,13 +685,14 @@ func (c *MilvusClient) RememberAboutPerson(ctx context.Context, telegramID strin
 }
 
 // RememberAboutCommunity stores a fact about a community
-func (c *MilvusClient) RememberAboutCommunity(ctx context.Context, communityID string, text string, metadata map[string]interface{}) (string, error) {
-	name := "Community"
+func (c *MilvusClient) RememberAboutCommunity(ctx context.Context, communityName string, text string, metadata map[string]interface{}) (string, error) {
+	// Generate hybrid embedding for the memory text.
 	embedding, err := c.embed.EmbedQuery(ctx, text)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate embedding for community memory: %w", err)
 	}
 
+	// Extract sparse components (if any).
 	var sparseIndices []int
 	var sparseValues []float32
 	var sparseShape []int
@@ -616,11 +702,12 @@ func (c *MilvusClient) RememberAboutCommunity(ctx context.Context, communityID s
 		sparseShape = embedding.Sparse.Shape
 	}
 
-	factID, err := c.StoreCommunityFact(ctx, communityID, name, text, metadata, embedding.Dense, sparseIndices, sparseValues, sparseShape)
+	// ownerID is intentionally left blank per new requirement – pass "".
+	factID, err := c.StoreCommunityFact(ctx, "", communityName, text, metadata, embedding.Dense, sparseIndices, sparseValues, sparseShape)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Memory about community %s stored successfully with ID: %s", communityID, factID), nil
+	return fmt.Sprintf("Memory about community %s stored successfully with ID: %s", communityName, factID), nil
 }
 
 // SearchAllMemories searches all facts collections
@@ -726,15 +813,18 @@ func (c *MilvusClient) SearchPersonalMemory(ctx context.Context, query, telegram
 }
 
 // SearchCommunityMemory searches a community's facts
-func (c *MilvusClient) SearchCommunityMemory(ctx context.Context, query, communityID string, k int) ([]core.SearchResult, error) {
+func (c *MilvusClient) SearchCommunityMemory(ctx context.Context, query, communityName string, k int) ([]core.SearchResult, error) {
 	embedding, err := c.embed.EmbedQuery(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embedding for community memory query: %w", err)
 	}
+
+	// Filter by `name` now instead of `owner_id`.
 	filter := ""
-	if communityID != "" {
-		filter = fmt.Sprintf("%s == \"%s\"", FieldOwnerID, communityID)
+	if communityName != "" {
+		filter = fmt.Sprintf("%s == \"%s\"", FieldName, communityName)
 	}
+
 	// Prepare sparse data for search, checking for validity first
 	var sparseForSearch entity.SparseEmbedding
 	if embedding.Sparse != nil && len(embedding.Sparse.Indices) > 0 && len(embedding.Sparse.Values) > 0 {
@@ -752,6 +842,7 @@ func (c *MilvusClient) SearchCommunityMemory(ctx context.Context, query, communi
 	} else {
 		sparseForSearch, _ = entity.NewSliceSparseEmbedding([]uint32{}, []float32{})
 	}
+
 	return c.SearchCommunityFacts(ctx, embedding.Dense, sparseForSearch, k, filter)
 }
 

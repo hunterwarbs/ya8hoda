@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hunterwarburton/ya8hoda/internal/core"
 	"github.com/hunterwarburton/ya8hoda/internal/logger"
 	"github.com/hunterwarburton/ya8hoda/internal/telegram"
 )
@@ -20,6 +21,7 @@ type OpenRouterService struct {
 	httpClient      *http.Client
 	character       *Character
 	promptGenerator *PromptGenerator
+	rag             core.RAGService // RAG service for retrieving relevant facts
 }
 
 // OpenRouterError represents an error response from the OpenRouter API.
@@ -108,6 +110,97 @@ func (s *OpenRouterService) GetCharacter() *Character {
 	return s.character
 }
 
+// SetRAGService allows wiring a RAGService instance into the LLM service after construction.
+func (s *OpenRouterService) SetRAGService(rag core.RAGService) {
+	s.rag = rag
+}
+
+// buildPromptContext embeds the user's most recent query, retrieves relevant facts from the RAG
+// service, and converts them into a PromptContext for the prompt generator.
+func (s *OpenRouterService) buildPromptContext(ctx context.Context, query string, userInfo *telegram.UserInfo) PromptContext {
+	// If there's no RAG service or empty query, return empty context
+	if s.rag == nil || query == "" {
+		return PromptContext{}
+	}
+
+	k := 5
+
+	// --- Personal facts (filtered by the current user if available) ---
+	var personalFacts []string
+	if userInfo != nil {
+		if results, err := s.rag.SearchSelfMemory(ctx, query, k); err == nil {
+			for _, res := range results {
+				if res.Document.Text != "" {
+					personalFacts = append(personalFacts, res.Document.Text)
+				}
+			}
+		} else {
+			logger.LLMWarn("Failed fetching personal facts: %v", err)
+		}
+		if len(personalFacts) > k {
+			personalFacts = personalFacts[:k]
+		}
+	}
+
+	k = 20
+	// --- People facts (no user filter) ---
+	peopleFacts := make(map[string][]string)
+	if results, err := s.rag.SearchPersonalMemory(ctx, query, "", "", k); err == nil {
+		for _, res := range results {
+			name := res.Document.Name
+			if name == "" {
+				name = res.Document.OwnerID // fall back to owner id if name missing
+			}
+			if name == "" {
+				name = "Unknown"
+			}
+			if res.Document.Text != "" {
+				peopleFacts[name] = append(peopleFacts[name], res.Document.Text)
+			}
+		}
+	} else {
+		logger.LLMWarn("Failed fetching people facts: %v", err)
+	}
+
+	// Ensure each slice <= k
+	for name, facts := range peopleFacts {
+		if len(facts) > k {
+			peopleFacts[name] = facts[:k]
+		}
+	}
+
+	// --- Community facts ---
+	communityFacts := make(map[string][]string)
+	if results, err := s.rag.SearchCommunityMemory(ctx, query, "", k); err == nil {
+		for _, res := range results {
+			name := res.Document.Name
+			if name == "" {
+				name = res.Document.OwnerID
+			}
+			if name == "" {
+				name = "Unknown"
+			}
+			if res.Document.Text != "" {
+				communityFacts[name] = append(communityFacts[name], res.Document.Text)
+			}
+		}
+	} else {
+		logger.LLMWarn("Failed fetching community facts: %v", err)
+	}
+
+	for name, facts := range communityFacts {
+		if len(facts) > k {
+			communityFacts[name] = facts[:k]
+		}
+	}
+
+	return PromptContext{
+		PersonalFacts:  personalFacts,
+		PeopleFacts:    peopleFacts,
+		CommunityFacts: communityFacts,
+	}
+}
+
 // ChatCompletion sends a chat completion request to OpenRouter.
 func (s *OpenRouterService) ChatCompletion(ctx context.Context, telegramMessages []telegram.Message, toolSpecs []interface{}) (*telegram.ChatResponse, error) {
 	return s.ChatCompletionWithUserInfo(ctx, telegramMessages, toolSpecs, nil)
@@ -129,16 +222,27 @@ func (s *OpenRouterService) ChatCompletionWithUserInfo(ctx context.Context, tele
 	messages := convertTelegramMessagesToLLM(telegramMessages)
 	logger.LLMDebug("ChatID[%d] UserID[%d]: Converted %d Telegram messages to LLM format.", chatID, userID, len(messages))
 
+	// Determine the most recent user query for RAG retrieval
+	latestUserQuery := ""
+	for i := len(telegramMessages) - 1; i >= 0; i-- {
+		if telegramMessages[i].Role == "user" {
+			latestUserQuery = telegramMessages[i].Content
+			break
+		}
+	}
+
+	promptCtx := s.buildPromptContext(ctx, latestUserQuery, userInfo)
+
 	// Check if there's an existing system message and replace it with our character system message
 	hasSystemMessage := len(messages) > 0 && messages[0].Role == "system"
 	if hasSystemMessage {
 		if s.promptGenerator != nil {
 			var systemPrompt string
 			if userInfo != nil {
-				systemPrompt = s.promptGenerator.GenerateSystemPromptWithUserInfo(userInfo)
+				systemPrompt = s.promptGenerator.GenerateSystemPromptWithUserInfoAndContext(userInfo, promptCtx)
 				logger.LLMDebug("ChatID[%d] UserID[%d]: Replacing system prompt using UserInfo.", chatID, userID)
 			} else {
-				systemPrompt = s.promptGenerator.GenerateSystemPrompt()
+				systemPrompt = s.promptGenerator.GenerateSystemPromptWithUserInfoAndContext(nil, promptCtx)
 				logger.LLMDebug("ChatID[%d] UserID[%d]: Replacing system prompt with default character prompt.", chatID, userID)
 			}
 			promptStart := systemPrompt
@@ -153,10 +257,10 @@ func (s *OpenRouterService) ChatCompletionWithUserInfo(ctx context.Context, tele
 	} else if s.promptGenerator != nil {
 		var systemPrompt string
 		if userInfo != nil {
-			systemPrompt = s.promptGenerator.GenerateSystemPromptWithUserInfo(userInfo)
+			systemPrompt = s.promptGenerator.GenerateSystemPromptWithUserInfoAndContext(userInfo, promptCtx)
 			logger.LLMDebug("ChatID[%d] UserID[%d]: Creating system prompt with UserInfo.", chatID, userID)
 		} else {
-			systemPrompt = s.promptGenerator.GenerateSystemPrompt()
+			systemPrompt = s.promptGenerator.GenerateSystemPromptWithUserInfoAndContext(nil, promptCtx)
 			logger.LLMDebug("ChatID[%d] UserID[%d]: Creating default character system prompt.", chatID, userID)
 		}
 		promptStart := systemPrompt
