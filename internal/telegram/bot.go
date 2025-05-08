@@ -78,15 +78,16 @@ type ChatResponse struct {
 
 // Bot represents a Telegram bot.
 type Bot struct {
-	bot           *bot.Bot
-	llm           LLMService
-	embed         core.EmbedService
-	toolRouter    ToolRouter
-	policyService PolicyService
-	rag           core.RAGService
-	sessions      map[int64][]Message
-	userInfo      map[int64]*UserInfo // Store user information by chat ID
-	mutex         sync.RWMutex
+	bot            *bot.Bot
+	llm            LLMService
+	embed          core.EmbedService
+	toolRouter     ToolRouter
+	policyService  PolicyService
+	rag            core.RAGService
+	sessions       map[int64][]Message
+	userInfo       map[int64]*UserInfo // Store user information by chat ID
+	userFactsSaved map[int64]bool      // cache to avoid redundant DB inserts
+	mutex          sync.RWMutex
 	// Character configuration
 	characterPrompt string
 }
@@ -94,14 +95,15 @@ type Bot struct {
 // NewBot creates a new bot instance.
 func NewBot(token string, llm LLMService, embed core.EmbedService, toolRouter ToolRouter, policyService PolicyService, rag core.RAGService) (*Bot, error) {
 	b := &Bot{
-		llm:           llm,
-		embed:         embed,
-		toolRouter:    toolRouter,
-		policyService: policyService,
-		rag:           rag,
-		sessions:      make(map[int64][]Message),
-		userInfo:      make(map[int64]*UserInfo),
-		mutex:         sync.RWMutex{},
+		llm:            llm,
+		embed:          embed,
+		toolRouter:     toolRouter,
+		policyService:  policyService,
+		rag:            rag,
+		sessions:       make(map[int64][]Message),
+		userInfo:       make(map[int64]*UserInfo),
+		userFactsSaved: make(map[int64]bool),
+		mutex:          sync.RWMutex{},
 	}
 
 	// Initialize the bot with our handler
@@ -224,29 +226,51 @@ func (b *Bot) updateUserInfo(message *models.Message) {
 
 	logger.TelegramDebug("Updated user info for chat %d: %s (ID: %d)", message.Chat.ID, fullName, message.From.ID)
 
-	// Attempt to store username/display name facts (duplicate inserts are ignored in the DB)
+	// Attempt to store username/display name facts only if we haven't done so before for this user.
 	if b.rag != nil && message.From.Username != "" {
-		go func(telegramID int64, username, displayName string) {
-			telegramIDStr := strconv.FormatInt(telegramID, 10)
+		b.mutex.RLock()
+		if b.userFactsSaved[message.From.ID] {
+			b.mutex.RUnlock()
+		} else {
+			b.mutex.RUnlock()
+			// Run verification + potential insertion asynchronously.
+			go func(telegramID int64, username, displayName string) {
+				telegramIDStr := strconv.FormatInt(telegramID, 10)
 
-			// Store username fact
-			usernameFact := fmt.Sprintf("Their telegram username is @%s", username)
-			if _, err := b.rag.RememberAboutPerson(context.Background(), telegramIDStr, username, usernameFact, map[string]interface{}{"source": "telegram", "type": "account_info"}); err != nil {
-				logger.TelegramWarn("Failed to store username fact for user %d: %v", telegramID, err)
-			} else {
-				logger.TelegramDebug("Stored username fact for user %d", telegramID)
-			}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
 
-			// Store display name fact (if available and different)
-			if displayName != "" {
-				displayNameFact := fmt.Sprintf("Their telegram display name is %s", displayName)
-				if _, err := b.rag.RememberAboutPerson(context.Background(), telegramIDStr, username, displayNameFact, map[string]interface{}{"source": "telegram", "type": "account_info"}); err != nil {
-					logger.TelegramWarn("Failed to store display name fact for user %d: %v", telegramID, err)
-				} else {
-					logger.TelegramDebug("Stored display name fact for user %d", telegramID)
+				// --- Check if facts already exist in DB ---
+				exists := false
+				// Search any fact for this telegram_id
+				results, err := b.rag.SearchPersonalMemory(ctx, "telegram username", telegramIDStr, username, 1)
+				if err == nil && len(results) > 0 {
+					exists = true
 				}
-			}
-		}(message.From.ID, message.From.Username, fullName)
+
+				if !exists {
+					// Insert username fact
+					usernameFact := fmt.Sprintf("Their telegram username is @%s", username)
+					if _, err := b.rag.RememberAboutPerson(ctx, telegramIDStr, username, usernameFact, map[string]interface{}{"source": "telegram", "type": "account_info"}); err != nil {
+						logger.TelegramWarn("Failed to store username fact for user %d: %v", telegramID, err)
+					}
+
+					// Insert display name fact if available
+					if displayName != "" {
+						displayNameFact := fmt.Sprintf("Their telegram display name is %s", displayName)
+						if _, err := b.rag.RememberAboutPerson(ctx, telegramIDStr, username, displayNameFact, map[string]interface{}{"source": "telegram", "type": "account_info"}); err != nil {
+							logger.TelegramWarn("Failed to store display name fact for user %d: %v", telegramID, err)
+						}
+					}
+					logger.TelegramDebug("Stored initial facts for user %d", telegramID)
+				}
+
+				// Mark as saved in cache regardless of outcome to avoid repeated checks in short term
+				b.mutex.Lock()
+				b.userFactsSaved[telegramID] = true
+				b.mutex.Unlock()
+			}(message.From.ID, message.From.Username, fullName)
+		}
 	}
 }
 
