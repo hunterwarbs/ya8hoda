@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/hunterwarburton/ya8hoda/internal/core"
@@ -86,6 +87,84 @@ type FunctionSchema struct {
 	Parameters  interface{} `json:"parameters,omitempty"`
 }
 
+// Token/length limiting constants and helpers
+const (
+	// Rough estimate: 1 token ≈ 4 characters for typical English text.
+	approximateCharsPerToken = 4
+	maxPromptTokens          = 100000
+	maxPromptChars           = approximateCharsPerToken * maxPromptTokens // ≈ 400 000 characters
+)
+
+// formatFactWithContext joins fact text with a human-readable timestamp and JSON-encoded metadata.
+func formatFactWithContext(doc core.Document) string {
+	fact := doc.Text
+	var parts []string
+	if doc.CreateTime > 0 {
+		ts := time.Unix(doc.CreateTime, 0)
+		parts = append(parts, fmt.Sprintf("learned %s", ts.Format("2006-01-02 15:04 MST")))
+	}
+	if len(doc.Metadata) > 0 {
+		if metaBytes, err := json.Marshal(doc.Metadata); err == nil {
+			parts = append(parts, string(metaBytes))
+		}
+	}
+	if len(parts) > 0 {
+		fact = fmt.Sprintf("%s (%s)", fact, strings.Join(parts, ", "))
+	}
+	return fact
+}
+
+// trimLLMMessagesToFit ensures the total length of the chat history (in characters)
+// does not exceed the provided limit. It always keeps the first system message
+// (if present) and then works backwards from the most-recent message, dropping
+// older ones until the limit is satisfied. It returns the trimmed slice (still
+// in chronological order) and the number of characters that were discarded.
+func trimLLMMessagesToFit(messages []Message, charLimit int) ([]Message, int) {
+	if charLimit <= 0 || len(messages) == 0 {
+		return messages, 0
+	}
+
+	trimmedChars := 0
+	startIdx := 0
+	var systemMsg *Message
+
+	// Preserve the first system message if it exists.
+	if messages[0].Role == "system" {
+		systemMsg = &messages[0]
+		startIdx = 1
+		charLimit -= len(systemMsg.Content)
+		if charLimit <= 0 {
+			// The system prompt alone exceeds the limit; nothing else can fit.
+			return []Message{*systemMsg}, 0
+		}
+	}
+
+	// Walk backwards through the remaining messages, keeping the newest until
+	// we run out of space.
+	total := 0
+	kept := make([]Message, 0, len(messages)-startIdx)
+	for i := len(messages) - 1; i >= startIdx; i-- {
+		msgLen := len(messages[i].Content)
+		if total+msgLen > charLimit {
+			trimmedChars += msgLen
+			continue
+		}
+		total += msgLen
+		kept = append(kept, messages[i])
+	}
+
+	// Reverse kept to restore chronological order.
+	for i := 0; i < len(kept)/2; i++ {
+		kept[i], kept[len(kept)-1-i] = kept[len(kept)-1-i], kept[i]
+	}
+
+	// Re-assemble final slice.
+	if systemMsg != nil {
+		return append([]Message{*systemMsg}, kept...), trimmedChars
+	}
+	return kept, trimmedChars
+}
+
 // NewOpenRouterService creates a new instance of OpenRouterService.
 func NewOpenRouterService(apiKey, model string) *OpenRouterService {
 	return &OpenRouterService{
@@ -131,7 +210,7 @@ func (s *OpenRouterService) buildPromptContext(ctx context.Context, query string
 		if results, err := s.rag.SearchSelfMemory(ctx, query, k); err == nil {
 			for _, res := range results {
 				if res.Document.Text != "" {
-					personalFacts = append(personalFacts, res.Document.Text)
+					personalFacts = append(personalFacts, formatFactWithContext(res.Document))
 				}
 			}
 		} else {
@@ -155,7 +234,7 @@ func (s *OpenRouterService) buildPromptContext(ctx context.Context, query string
 				name = "Unknown"
 			}
 			if res.Document.Text != "" {
-				peopleFacts[name] = append(peopleFacts[name], res.Document.Text)
+				peopleFacts[name] = append(peopleFacts[name], formatFactWithContext(res.Document))
 			}
 		}
 	} else {
@@ -181,7 +260,7 @@ func (s *OpenRouterService) buildPromptContext(ctx context.Context, query string
 				name = "Unknown"
 			}
 			if res.Document.Text != "" {
-				communityFacts[name] = append(communityFacts[name], res.Document.Text)
+				communityFacts[name] = append(communityFacts[name], formatFactWithContext(res.Document))
 			}
 		}
 	} else {
@@ -278,10 +357,14 @@ func (s *OpenRouterService) ChatCompletionWithUserInfo(ctx context.Context, tele
 		logger.LLMWarn("ChatID[%d] UserID[%d]: No existing system message and no prompt generator to create one.", chatID, userID)
 	}
 
+	// Trim the history to fit within the token limit
+	trimmedMessages, discardedChars := trimLLMMessagesToFit(messages, maxPromptChars)
+	logger.LLMInfo("ChatID[%d] UserID[%d]: Trimmed %d characters from history. Discarded %d characters.", chatID, userID, discardedChars, discardedChars)
+
 	// Create the request body
 	reqBody := ChatRequest{
 		Model:    s.model,
-		Messages: messages,
+		Messages: trimmedMessages,
 	}
 
 	// Add tools if provided
@@ -308,7 +391,7 @@ func (s *OpenRouterService) ChatCompletionWithUserInfo(ctx context.Context, tele
 	}
 	// logger.LLMDebug("ChatID[%d] UserID[%d]: LLM Request Body: %s", chatID, userID, string(jsonData)) // Very verbose
 
-	logger.LLMInfo("ChatID[%d] UserID[%d]: Sending request to LLM '%s' with %d messages and %d tools.", chatID, userID, s.model, len(messages), len(reqBody.Tools))
+	logger.LLMInfo("ChatID[%d] UserID[%d]: Sending request to LLM '%s' with %d messages and %d tools.", chatID, userID, s.model, len(trimmedMessages), len(reqBody.Tools))
 
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
