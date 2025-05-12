@@ -2,7 +2,7 @@
   "type": "function",
   "function": {
     "name": "solana_get_token_info",
-    "description": "Fetch detailed information (attributes, extensions, logo URI (logo for tokens, image for nfts), description, etc.) for a list of SPL token mint addresses.",
+    "description": "Fetch detailed information (attributes, extensions, logo URI (logo for tokens, image for nfts), description, etc.) for a list of SPL token mint addresses. Use this if the user asks to see nfts because it will return urls for the nfts that you can use the function 'send_urls_as_image' to show them.",
     "parameters": {
       "type": "object",
       "properties": {
