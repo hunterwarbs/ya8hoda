@@ -147,7 +147,6 @@ func (pg *PromptGenerator) GenerateSystemPromptWithUserInfoAndContext(userInfo *
 
 	builder.WriteString("Respond to the user as this character, maintaining consistency with your background and personality at all times.")
 
-	fmt.Println(builder.String())
 	return builder.String()
 }
 

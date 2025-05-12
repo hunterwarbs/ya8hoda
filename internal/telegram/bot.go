@@ -366,6 +366,165 @@ func (b *Bot) sendContinuousTypingAction(ctx context.Context, chatID int64, done
 	}
 }
 
+const maxToolRounds = 5 // Maximum number of tool call rounds
+
+// processLLMInteraction handles the core interaction loop with the LLM,
+// including making initial and subsequent calls, and processing tool calls.
+// It updates the session internally and returns the final LLM response.
+func (b *Bot) processLLMInteraction(ctx context.Context, chatID int64, userID int64, session []Message, toolSpecs []interface{}, userInfo *UserInfo) (*ChatResponse, error) {
+	var response *ChatResponse
+	var err error
+
+	for round := 0; round < maxToolRounds; round++ {
+		logger.LLMDebug("Chat[%d]: Initiating LLM call (Round %d). History length: %d", chatID, round+1, len(session))
+
+		if userInfo != nil {
+			response, err = b.llm.ChatCompletionWithUserInfo(ctx, session, toolSpecs, userInfo)
+		} else {
+			response, err = b.llm.ChatCompletion(ctx, session, toolSpecs)
+		}
+
+		if err != nil {
+			logger.LLMError("Chat[%d] User[%d]: Error from LLM (Round %d): %v", chatID, userID, round+1, err)
+			return nil, fmt.Errorf("LLM error on round %d: %w", round+1, err)
+		}
+
+		// Check if the LLM response contains tool calls
+		if len(response.Message.ToolCalls) == 0 {
+			logger.LLMDebug("Chat[%d]: LLM response (Round %d) has no tool calls. Final response.", chatID, round+1)
+			return response, nil // No tool calls, this is the final response
+		}
+
+		// --- Process Tool Calls ---
+		logger.LLMInfo("Chat[%d]: LLM requested %d tool calls (Round %d).", chatID, len(response.Message.ToolCalls), round+1)
+
+		// Add the assistant message *requesting* the tool calls to the session
+		b.mutex.Lock()
+		currentSession := b.sessions[chatID] // Re-fetch session inside lock
+		currentSession = append(currentSession, response.Message)
+		b.sessions[chatID] = currentSession
+		session = currentSession // Update local session variable
+		b.mutex.Unlock()
+		logger.TelegramDebug("Chat[%d]: Added assistant message (tool request) to session. History length: %d", chatID, len(session))
+
+		// Check if we've reached the maximum rounds *before* executing tools for this round
+		if round == maxToolRounds-1 {
+			logger.LLMWarn("Chat[%d]: Maximum tool call rounds (%d) reached. Returning last response which still requests tools.", chatID, maxToolRounds)
+			return response, nil // Return the response that requested tools, caller handles it
+		}
+
+		// Execute all tool calls from this round
+		for i, toolCall := range response.Message.ToolCalls {
+			toolName := toolCall.Function.Name
+			var toolResultContent string
+			var toolProcessingErr error
+			currentToolCall := toolCall // Mutable copy
+
+			// --- Tool Processing Logic (extracted part) ---
+			if toolName == "send_urls_as_image" {
+				logger.ToolInfo("Chat[%d] User[%d]: Handling bot action %d/%d: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
+				var args struct {
+					URLs    []string `json:"urls"`
+					Caption string   `json:"caption,omitempty"`
+				}
+				if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
+					logger.ToolError("Chat[%d]: Error parsing arguments for %s: %v", chatID, toolName, err)
+					toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
+					toolProcessingErr = err
+				} else {
+					go func() {
+						bgCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // 60-second timeout for sending media
+						defer cancel()
+						_, sendErr := b.SendURLsAsMediaGroup(bgCtx, chatID, args.URLs, args.Caption)
+						if sendErr != nil {
+							logger.ToolError("Chat[%d]: Error in background sending media group for %s: %v", chatID, toolName, sendErr)
+						}
+					}()
+					toolResultContent = fmt.Sprintf("Bot action '%s' initiated successfully to send %d URLs with caption '%s'. The user will see the images separately.", toolName, len(args.URLs), args.Caption)
+				}
+			} else {
+				// Default: use toolRouter, check for arg injection
+				if toolName == "store_person_memory" {
+					logger.ToolDebug("Chat[%d] User[%d]: Pre-processing args for %s", chatID, userID, toolName)
+					var args map[string]interface{}
+					if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
+						logger.ToolError("Chat[%d]: Error parsing tool arguments for %s arg injection: %v", chatID, toolName, err)
+						toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
+						toolProcessingErr = err
+					} else {
+						if _, exists := args["telegram_id"]; !exists {
+							args["telegram_id"] = fmt.Sprintf("%d", userID)
+							logger.ToolDebug("Chat[%d]: Injected telegram_id=%d into %s arguments", chatID, userID, toolName)
+						}
+						if _, exists := args["person_name"]; !exists {
+							if userInfo != nil {
+								personName := userInfo.Username
+								if personName == "" {
+									personName = userInfo.FullName
+								}
+								if personName != "" {
+									args["person_name"] = personName
+									logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
+								} else {
+									logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s from provided UserInfo", chatID, userID, toolName)
+								}
+							} else {
+								logger.ToolWarn("Chat[%d]: User info not provided to inject name into %s", chatID, userID, toolName)
+							}
+						}
+						newArgs, err := json.Marshal(args)
+						if err != nil {
+							logger.ToolError("Chat[%d]: Error encoding modified arguments for %s: %v", chatID, toolName, err)
+							toolResultContent = fmt.Sprintf("Error re-encoding arguments for %s: %v", toolName, err)
+							toolProcessingErr = err
+						} else {
+							currentToolCall.Function.Arguments = string(newArgs)
+						}
+					}
+				}
+
+				// Execute via toolRouter if not handled directly or error in arg parsing
+				if toolProcessingErr == nil && toolName != "send_urls_as_image" {
+					logger.ToolInfo("Chat[%d] User[%d]: Executing tool call %d/%d via router: %s (Round %d)", chatID, userID, i+1, len(response.Message.ToolCalls), toolName, round+1)
+					toolResultContent, toolProcessingErr = b.toolRouter.ExecuteToolCall(ctx, userID, &currentToolCall)
+				}
+			}
+			// --- End Tool Processing Logic ---
+
+			if toolProcessingErr != nil {
+				if toolResultContent == "" { // Ensure result content has error for LLM
+					toolResultContent = fmt.Sprintf("Error executing tool %s: %v", toolName, toolProcessingErr)
+				}
+				logger.ToolError("Chat[%d] User[%d]: Error processing tool %s: %v. Reporting to LLM: %s", chatID, userID, toolName, toolProcessingErr, toolResultContent)
+			} else {
+				logger.ToolInfo("Chat[%d]: Tool call '%s' processed. Result for LLM: %s", chatID, toolName, toolResultContent)
+			}
+
+			toolResponse := Message{
+				Role:       "tool",
+				Content:    toolResultContent,
+				ToolCallID: currentToolCall.ID,
+			}
+
+			// Add the tool response to the session immediately
+			b.mutex.Lock()
+			currentSession = b.sessions[chatID] // Re-fetch session inside lock
+			currentSession = append(currentSession, toolResponse)
+			b.sessions[chatID] = currentSession
+			session = currentSession // Update local session variable
+			b.mutex.Unlock()
+			logger.TelegramDebug("Chat[%d]: Added tool result (%s) to session. History length: %d", chatID, toolName, len(session))
+		}
+		// --- Loop continues to the next LLM call ---
+	}
+
+	// If the loop completes without returning (i.e., max rounds reached on the last iteration),
+	// the last response (which still contained tool calls) would have been returned inside the loop.
+	// This part should technically be unreachable if maxToolRounds > 0.
+	logger.LLMError("Chat[%d]: Reached theoretically unreachable code path after tool processing loop.", chatID)
+	return nil, fmt.Errorf("unexpected state after tool processing loop")
+}
+
 // handleTextMessage processes a message with text.
 func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 	chatID := message.Chat.ID
@@ -414,162 +573,33 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 	userInfo := b.userInfo[chatID]
 	b.mutex.RUnlock()
 
-	// === First LLM Call ===
-	logger.LLMDebug("Chat[%d]: Initiating LLM call (User Request). History length: %d", chatID, len(session))
-	var response *ChatResponse
-	if userInfo != nil {
-		response, err = b.llm.ChatCompletionWithUserInfo(ctx, session, toolSpecs, userInfo)
-	} else {
-		response, err = b.llm.ChatCompletion(ctx, session, toolSpecs)
-	}
-
+	// === Process LLM Interaction ===
+	finalResponse, err := b.processLLMInteraction(ctx, chatID, userID, session, toolSpecs, userInfo)
 	if err != nil {
-		logger.LLMError("Chat[%d] User[%d]: Error from LLM (1st call): %v", chatID, userID, err)
+		// b.processLLMInteraction already logged the specific LLM error
 		b.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
-			Text:   "Sorry, I encountered an error while generating a response.",
+			Text:   "Sorry, I encountered an error while processing your request.", // Generic message to user
 		})
 		return
 	}
-	logger.LLMDebug("Chat[%d]: Received LLM response (1st call). Tool calls requested: %t", chatID, len(response.Message.ToolCalls) > 0)
 
-	// Process tool calls from the LLM response
-	if len(response.Message.ToolCalls) > 0 {
-		logger.LLMInfo("Chat[%d]: LLM requested %d tool calls.", chatID, len(response.Message.ToolCalls))
-
-		// Add the assistant message *requesting* the tool calls to the session
-		b.mutex.Lock()
-		session = append(session, response.Message)
-		b.sessions[chatID] = session
-		b.mutex.Unlock()
-		logger.TelegramDebug("Chat[%d]: Added assistant message (tool request) to session. History length: %d", chatID, len(session))
-
-		for i, toolCall := range response.Message.ToolCalls {
-			toolName := toolCall.Function.Name
-			var toolResultContent string
-			var toolProcessingErr error
-			currentToolCall := toolCall // Mutable copy
-
-			if toolName == "send_urls_as_image" {
-				logger.ToolInfo("Chat[%d] User[%d]: Handling bot action %d/%d: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
-				var args struct {
-					URLs    []string `json:"urls"`
-					Caption string   `json:"caption,omitempty"`
-				}
-				if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
-					logger.ToolError("Chat[%d]: Error parsing arguments for %s: %v", chatID, toolName, err)
-					toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
-					toolProcessingErr = err
-				} else {
-					toolResultContent, toolProcessingErr = b.SendURLsAsMediaGroup(ctx, chatID, args.URLs, args.Caption)
-				}
-			} else {
-				// Default: use toolRouter, but check for argument injection needs first
-				if toolName == "store_person_memory" {
-					logger.ToolDebug("Chat[%d] User[%d]: Pre-processing args for %s", chatID, userID, toolName)
-					var args map[string]interface{}
-					if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
-						logger.ToolError("Chat[%d]: Error parsing tool arguments for %s arg injection: %v", chatID, toolName, err)
-						toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
-						toolProcessingErr = err
-					} else {
-						if _, exists := args["telegram_id"]; !exists {
-							args["telegram_id"] = fmt.Sprintf("%d", userID)
-							logger.ToolDebug("Chat[%d]: Injected telegram_id=%d into %s arguments", chatID, userID, toolName)
-						}
-						if _, exists := args["person_name"]; !exists {
-							b.mutex.RLock()
-							callingUserInfo := b.userInfo[chatID]
-							b.mutex.RUnlock()
-							if callingUserInfo != nil {
-								personName := callingUserInfo.Username
-								if personName == "" { // fallback if no username
-									personName = callingUserInfo.FullName
-								}
-								if personName != "" {
-									args["person_name"] = personName
-									logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
-								} else {
-									logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s", chatID, userID, toolName)
-								}
-							} else {
-								logger.ToolWarn("Chat[%d]: User info not found for user %d to inject name into %s", chatID, userID, toolName)
-							}
-						}
-						newArgs, err := json.Marshal(args)
-						if err != nil {
-							logger.ToolError("Chat[%d]: Error encoding modified arguments for %s: %v", chatID, toolName, err)
-							toolResultContent = fmt.Sprintf("Error re-encoding arguments for %s: %v", toolName, err)
-							toolProcessingErr = err
-						} else {
-							currentToolCall.Function.Arguments = string(newArgs)
-							// Fall through to toolRouter execution with modified args
-						}
-					}
-				}
-
-				// Execute via toolRouter if not handled as a direct bot action or if there was an error in arg parsing for store_person_memory
-				if toolProcessingErr == nil && toolName != "send_urls_as_image" { // Avoid re-processing if already handled or error in arg parsing
-					logger.ToolInfo("Chat[%d] User[%d]: Executing tool call %d/%d via router: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
-					toolResultContent, toolProcessingErr = b.toolRouter.ExecuteToolCall(ctx, userID, &currentToolCall)
-				}
-			}
-
-			if toolProcessingErr != nil {
-				if toolResultContent == "" { // Ensure toolResultContent has an error message for the LLM
-					toolResultContent = fmt.Sprintf("Error executing tool %s: %v", toolName, toolProcessingErr)
-				}
-				logger.ToolError("Chat[%d] User[%d]: Error processing tool %s: %v. Reporting to LLM: %s", chatID, userID, toolName, toolProcessingErr, toolResultContent)
-			} else {
-				logger.ToolInfo("Chat[%d]: Tool call '%s' processed. Result for LLM: %s", chatID, toolName, toolResultContent)
-			}
-
-			toolResponse := Message{
-				Role:       "tool",
-				Content:    toolResultContent,
-				ToolCallID: currentToolCall.ID,
-			}
-
-			// Add the tool response to the session immediately
-			b.mutex.Lock()
-			session = append(session, toolResponse)
-			b.sessions[chatID] = session
-			b.mutex.Unlock()
-			logger.TelegramDebug("Chat[%d]: Added tool result (%s) to session. History length: %d", chatID, toolName, len(session))
-		}
-
-		// === Second LLM Call ===
-		logger.LLMDebug("Chat[%d]: Initiating LLM call (Tool Results). History length: %d", chatID, len(session))
-		if userInfo != nil {
-			response, err = b.llm.ChatCompletionWithUserInfo(ctx, session, toolSpecs, userInfo)
-		} else {
-			response, err = b.llm.ChatCompletion(ctx, session, toolSpecs)
-		}
-
-		if err != nil {
-			logger.LLMError("Chat[%d] User[%d]: Error from LLM (2nd call, after tools): %v", chatID, userID, err)
-			b.bot.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: chatID,
-				Text:   "Sorry, I encountered an error while processing the tool results.",
-			})
-			return
-		}
-		logger.LLMDebug("Chat[%d]: Received LLM response (2nd call, final). Tool calls requested: %t", chatID, len(response.Message.ToolCalls) > 0)
-		if len(response.Message.ToolCalls) > 0 {
-			logger.LLMInfo("Chat[%d]: Received unexpected tool calls after processing previous tool results.", chatID)
-		}
-	}
-
+	// === Final Steps ===
 	// Add the final assistant's response to the session
+	// Note: processLLMInteraction does NOT add the *final* assistant message, only intermediate ones.
 	b.mutex.Lock()
-	session = append(session, response.Message)
+	session = b.sessions[chatID] // Re-fetch session
+	session = append(session, finalResponse.Message)
 	b.sessions[chatID] = session
 	b.mutex.Unlock()
 	logger.TelegramDebug("Chat[%d]: Added final assistant response to session. History length: %d", chatID, len(session))
 
 	// Prepare final message content for logging/sending
-	finalContent := response.Message.Content
+	finalContent := finalResponse.Message.Content
 	logPreview := finalContent
+	if len(logPreview) > 0 && logPreview[0] == ' ' { // Handle potential leading space from LLM with images
+		logPreview = logPreview[1:]
+	}
 	if len(logPreview) > 80 {
 		logPreview = logPreview[:80] + "..."
 	}
@@ -652,162 +682,30 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 	userInfo := b.userInfo[chatID]
 	b.mutex.RUnlock()
 
-	// === First LLM Call (with image) ===
-	logger.LLMDebug("Chat[%d]: Initiating LLM call (User Request with Image). History length: %d", chatID, len(session))
-	var response *ChatResponse
-	if userInfo != nil {
-		response, err = b.llm.ChatCompletionWithUserInfo(ctx, session, toolSpecs, userInfo)
-	} else {
-		response, err = b.llm.ChatCompletion(ctx, session, toolSpecs)
-	}
-
+	// === Process LLM Interaction (with image context) ===
+	// The session already contains the user message with the image URL
+	finalResponse, err := b.processLLMInteraction(ctx, chatID, userID, session, toolSpecs, userInfo)
 	if err != nil {
-		logger.LLMError("Chat[%d] User[%d]: Error from LLM (1st call, with image): %v", chatID, userID, err)
+		// b.processLLMInteraction already logged the specific LLM error
 		b.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
-			Text:   "Sorry, I encountered an error analyzing your image.",
+			Text:   "Sorry, I encountered an error while processing your image request.", // Slightly more specific
 		})
 		return
 	}
-	logger.LLMDebug("Chat[%d]: Received LLM response (1st call, with image). Tool calls requested: %t", chatID, len(response.Message.ToolCalls) > 0)
 
-	// Process tool calls if any
-	if len(response.Message.ToolCalls) > 0 {
-		logger.LLMInfo("Chat[%d]: LLM requested %d tool calls after image.", chatID, len(response.Message.ToolCalls))
-
-		// Add the assistant message with tool calls to the session
-		b.mutex.Lock()
-		session = append(session, response.Message)
-		b.sessions[chatID] = session
-		b.mutex.Unlock()
-		logger.TelegramDebug("Chat[%d]: Added assistant message (tool request) to session. History length: %d", chatID, len(session))
-
-		for i, toolCall := range response.Message.ToolCalls {
-			toolName := toolCall.Function.Name
-			var toolResultContent string
-			var toolProcessingErr error
-			currentToolCall := toolCall // Mutable copy
-
-			if toolName == "send_urls_as_image" {
-				logger.ToolInfo("Chat[%d] User[%d]: Handling bot action %d/%d: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
-				var args struct {
-					URLs    []string `json:"urls"`
-					Caption string   `json:"caption,omitempty"`
-				}
-				if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
-					logger.ToolError("Chat[%d]: Error parsing arguments for %s: %v", chatID, toolName, err)
-					toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
-					toolProcessingErr = err
-				} else {
-					toolResultContent, toolProcessingErr = b.SendURLsAsMediaGroup(ctx, chatID, args.URLs, args.Caption)
-				}
-			} else {
-				// Default: use toolRouter, but check for argument injection needs first
-				if toolName == "store_person_memory" {
-					logger.ToolDebug("Chat[%d] User[%d]: Pre-processing args for %s", chatID, userID, toolName)
-					var args map[string]interface{}
-					if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
-						logger.ToolError("Chat[%d]: Error parsing tool arguments for %s arg injection: %v", chatID, toolName, err)
-						toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
-						toolProcessingErr = err
-					} else {
-						if _, exists := args["telegram_id"]; !exists {
-							args["telegram_id"] = fmt.Sprintf("%d", userID)
-							logger.ToolDebug("Chat[%d]: Injected telegram_id=%d into %s arguments", chatID, userID, toolName)
-						}
-						if _, exists := args["person_name"]; !exists {
-							b.mutex.RLock()
-							callingUserInfo := b.userInfo[chatID]
-							b.mutex.RUnlock()
-							if callingUserInfo != nil {
-								personName := callingUserInfo.Username
-								if personName == "" { // fallback if no username
-									personName = callingUserInfo.FullName
-								}
-								if personName != "" {
-									args["person_name"] = personName
-									logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
-								} else {
-									logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s", chatID, userID, toolName)
-								}
-							} else {
-								logger.ToolWarn("Chat[%d]: User info not found for user %d to inject name into %s", chatID, userID, toolName)
-							}
-						}
-						newArgs, err := json.Marshal(args)
-						if err != nil {
-							logger.ToolError("Chat[%d]: Error encoding modified arguments for %s: %v", chatID, toolName, err)
-							toolResultContent = fmt.Sprintf("Error re-encoding arguments for %s: %v", toolName, err)
-							toolProcessingErr = err
-						} else {
-							currentToolCall.Function.Arguments = string(newArgs)
-							// Fall through to toolRouter execution with modified args
-						}
-					}
-				}
-
-				// Execute via toolRouter if not handled as a direct bot action or if there was an error in arg parsing for store_person_memory
-				if toolProcessingErr == nil && toolName != "send_urls_as_image" { // Avoid re-processing if already handled or error in arg parsing
-					logger.ToolInfo("Chat[%d] User[%d]: Executing tool call %d/%d via router: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
-					toolResultContent, toolProcessingErr = b.toolRouter.ExecuteToolCall(ctx, userID, &currentToolCall)
-				}
-			}
-
-			if toolProcessingErr != nil {
-				if toolResultContent == "" { // Ensure toolResultContent has an error message for the LLM
-					toolResultContent = fmt.Sprintf("Error executing tool %s: %v", toolName, toolProcessingErr)
-				}
-				logger.ToolError("Chat[%d] User[%d]: Error processing tool %s: %v. Reporting to LLM: %s", chatID, userID, toolName, toolProcessingErr, toolResultContent)
-			} else {
-				logger.ToolInfo("Chat[%d]: Tool call '%s' processed. Result for LLM: %s", chatID, toolName, toolResultContent)
-			}
-
-			// Create a tool response message
-			toolResponse := Message{
-				Role:       "tool",
-				Content:    toolResultContent,
-				ToolCallID: currentToolCall.ID,
-			}
-
-			// Add the tool response to the session immediately
-			b.mutex.Lock()
-			session = append(session, toolResponse)
-			b.sessions[chatID] = session
-			b.mutex.Unlock()
-			logger.TelegramDebug("Chat[%d]: Added tool result (%s) to session. History length: %d", chatID, toolName, len(session))
-		}
-
-		// === Second LLM Call (after tools, image context) ===
-		logger.LLMDebug("Chat[%d]: Initiating LLM call (Tool Results, Image Context). History length: %d", chatID, len(session))
-		if userInfo != nil {
-			response, err = b.llm.ChatCompletionWithUserInfo(ctx, session, toolSpecs, userInfo)
-		} else {
-			response, err = b.llm.ChatCompletion(ctx, session, toolSpecs)
-		}
-
-		if err != nil {
-			logger.LLMError("Chat[%d] User[%d]: Error from LLM (2nd call, after tools, image): %v", chatID, userID, err)
-			b.bot.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: chatID,
-				Text:   "Sorry, I encountered an error processing the tool results for the image.",
-			})
-			return
-		}
-		logger.LLMDebug("Chat[%d]: Received LLM response (2nd call, final, image). Tool calls requested: %t", chatID, len(response.Message.ToolCalls) > 0)
-		if len(response.Message.ToolCalls) > 0 {
-			logger.LLMInfo("Chat[%d]: Received unexpected tool calls after processing previous tool results (image context).", chatID)
-		}
-	}
-
-	// Add the assistant's response to the session
+	// === Final Steps ===
+	// Add the final assistant's response to the session
+	// Note: processLLMInteraction does NOT add the *final* assistant message, only intermediate ones.
 	b.mutex.Lock()
-	session = append(session, response.Message)
+	session = b.sessions[chatID] // Re-fetch session
+	session = append(session, finalResponse.Message)
 	b.sessions[chatID] = session
 	b.mutex.Unlock()
-	logger.TelegramDebug("Chat[%d]: Added final assistant response to session. History length: %d", chatID, len(session))
+	logger.TelegramDebug("Chat[%d]: Added final assistant response to session (image context). History length: %d", chatID, len(session))
 
 	// Prepare final message content for logging/sending
-	finalContent := response.Message.Content
+	finalContent := finalResponse.Message.Content
 	logPreview := finalContent
 	if len(logPreview) > 0 && logPreview[0] == ' ' { // Handle potential leading space from LLM with images
 		logPreview = logPreview[1:]
@@ -1123,3 +1021,6 @@ func (b *Bot) filterToolSpecs(userID int64) ([]interface{}, error) {
 	logger.ToolInfo("User[%d]: Final toolset: %d allowed, %d skipped. Skipped: %v", userID, len(filteredToolSpecs), len(skippedTools), skippedTools)
 	return filteredToolSpecs, nil
 }
+
+// SendURLsAsMediaGroup sends multiple photos specified by URL as a media group.
+// ... existing code ...
