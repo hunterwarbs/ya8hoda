@@ -8,6 +8,7 @@ import (
 	"github.com/hunterwarburton/ya8hoda/internal/core"
 	"github.com/hunterwarburton/ya8hoda/internal/logger"
 	"github.com/hunterwarburton/ya8hoda/internal/rag"
+	"github.com/hunterwarburton/ya8hoda/internal/solana"
 	"github.com/hunterwarburton/ya8hoda/internal/telegram"
 )
 
@@ -186,6 +187,115 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 			return "", fmt.Errorf("failed to execute remember_about_self: %w", err)
 		}
 		result = rag.FormatSearchResultsAsJSON(searchResults) // Use rag.FormatSearchResultsAsJSON
+
+	case "solana_get_tokens":
+		var args struct {
+			AddressOrName string `json:"address_or_name"`
+		}
+		if err = json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return "", fmt.Errorf("failed to parse solana_get_tokens arguments: %w", err)
+		}
+		logger.Debug("Parsed solana_get_tokens arguments: %+v", args)
+		if args.AddressOrName == "" {
+			return "", fmt.Errorf("address_or_name is required for solana_get_tokens")
+		}
+		// Create a lightweight Solana RPC client (could be reused if needed)
+		client := solana.NewClient("") // default endpoint
+		var owner string
+		owner, err = client.ResolveAddress(ctx, args.AddressOrName)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve address: %w", err)
+		}
+		var balances []solana.TokenAccount
+		balances, err = client.GetTokenBalances(ctx, owner)
+		if err != nil {
+			return "", fmt.Errorf("failed to fetch token balances: %w", err)
+		}
+
+		// NEW: Simplify the balances for the LLM
+		type SimplifiedTokenAccount struct {
+			Mint   string  `json:"mint"`
+			Amount float64 `json:"amount"`
+			Symbol string  `json:"symbol,omitempty"`
+			Name   string  `json:"name,omitempty"`
+		}
+		simplifiedBalances := make([]SimplifiedTokenAccount, 0, len(balances))
+		for _, acc := range balances {
+			simplifiedBalances = append(simplifiedBalances, SimplifiedTokenAccount{
+				Mint:   acc.Mint,
+				Amount: acc.Amount,
+				Symbol: acc.Symbol,
+				Name:   acc.Name,
+			})
+		}
+
+		// Marshal simplified balances as JSON for return
+		var jsonRes []byte
+		if jsonRes, err = json.Marshal(simplifiedBalances); err != nil { // Marshal simplifiedBalances instead
+			return "", fmt.Errorf("failed to encode simplified balances: %w", err)
+		}
+		logger.Debug("Simplified Solana token balances: %s", string(jsonRes))
+		result = string(jsonRes)
+
+	case "solana_get_token_info":
+		var args struct {
+			MintAddresses []string `json:"mint_addresses"`
+		}
+		if err = json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return "", fmt.Errorf("failed to parse solana_get_token_info arguments: %w", err)
+		}
+		logger.Debug("Parsed solana_get_token_info arguments: %+v", args)
+		if len(args.MintAddresses) == 0 {
+			return "", fmt.Errorf("mint_addresses list cannot be empty for solana_get_token_info")
+		}
+
+		client := solana.NewClient("") // default endpoint
+		var allTokenInfo []*solana.FullTokenInfo
+
+		// Create a context for the metadata fetching operations
+		// Consider using a shared context if multiple calls are made, managing timeouts appropriately.
+		// For simplicity here, each GetTokenMetadata call will manage its own internal context if needed, or use the passed one.
+
+		for _, mintAddr := range args.MintAddresses {
+			// It's good practice to have a timeout for each external call.
+			// The GetTokenMetadata function itself has internal timeouts for HTTP requests and RPC calls.
+			// We can pass the main context `ctx` which might have an overall timeout for the entire tool execution.
+			tokenInfo, fetchErr := client.GetTokenMetadata(ctx, mintAddr)
+			if fetchErr != nil {
+				// Decide how to handle errors: continue and collect partial results, or fail fast.
+				// For now, log the error and add a placeholder or skip.
+				// If GetTokenMetadata returns a FullTokenInfo even on error (e.g. for permanently bad tokens), use it.
+				if tokenInfo != nil && tokenInfo.IsPermanentlyBad {
+					logger.ToolWarn("Permanently bad token encountered for mint %s: %s. Including error info.", mintAddr, tokenInfo.ErrorMessage)
+					allTokenInfo = append(allTokenInfo, tokenInfo)
+				} else {
+					logger.ToolWarn("Failed to fetch metadata for mint %s: %v. Skipping this token.", mintAddr, fetchErr)
+					// Optionally, add a specific error entry for this mint if desired by the LLM
+					allTokenInfo = append(allTokenInfo, &solana.FullTokenInfo{
+						MintAddress:      mintAddr,
+						IsPermanentlyBad: true, // Mark as bad if fetch failed critically
+						ErrorType:        "fetch_failed",
+						ErrorMessage:     fetchErr.Error(),
+					})
+				}
+				continue
+			}
+			if tokenInfo != nil {
+				allTokenInfo = append(allTokenInfo, tokenInfo)
+			}
+		}
+
+		if len(allTokenInfo) == 0 && len(args.MintAddresses) > 0 {
+			// This case means all fetches failed and we didn't even get error structs back for some reason.
+			return "", fmt.Errorf("failed to fetch any token information for the provided mint addresses")
+		}
+
+		var jsonRes []byte
+		if jsonRes, err = json.Marshal(allTokenInfo); err != nil {
+			return "", fmt.Errorf("failed to encode token_info results: %w", err)
+		}
+		logger.Debug("Solana token info results: %s", string(jsonRes))
+		result = string(jsonRes)
 
 	default:
 		err = fmt.Errorf("unknown tool: %s", call.Function.Name)

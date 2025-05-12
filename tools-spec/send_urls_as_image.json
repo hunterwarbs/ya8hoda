@@ -1,0 +1,27 @@
+{
+  "type": "function",
+  "function": {
+    "name": "send_urls_as_image",
+    "description": "Fetches images from a list of URLs and sends them as a media group (album) in the chat. Can also include an optional caption for the album.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "A URL pointing to an image."
+          },
+          "description": "A list of image URLs to send. Up to 10 URLs.",
+          "minItems": 1,
+          "maxItems": 10
+        },
+        "caption": {
+          "type": "string",
+          "description": "An optional caption for the first image in the album."
+        }
+      },
+      "required": ["urls"]
+    }
+  }
+} 

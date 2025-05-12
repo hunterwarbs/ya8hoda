@@ -1,0 +1,17 @@
+{
+  "type": "function",
+  "function": {
+    "name": "solana_get_tokens",
+    "description": "Fetch simplified SPL token balances (mint, amount, symbol, name) for a given Solana wallet address or .sol domain name. This is public information you're free to share with anyone asking about any address!",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "address_or_name": {
+          "type": "string",
+          "description": "The wallet base-58 public key (44 chars) or a .sol domain name."
+        }
+      },
+      "required": ["address_or_name"]
+    }
+  }
+} 

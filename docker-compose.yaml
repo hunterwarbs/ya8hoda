@@ -7,6 +7,7 @@ services:
     volumes:
       - ./data/tmp:/tmp/images
       - ./tools-spec:/app/tools-spec
+      - ./data/solana:/app/data/solana
     depends_on:
       milvus-standalone:
         condition: service_healthy
@@ -14,6 +15,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     environment:
+      - COMPOSE_BAKE=true
       - IN_DOCKER_COMPOSE=true
       - MILVUS_ADDRESS=milvus-standalone:19530
       - EMBEDDING_API_URL=http://bge-embedding:8000

@@ -1,0 +1,21 @@
+{
+  "type": "function",
+  "function": {
+    "name": "solana_get_token_info",
+    "description": "Fetch detailed information (attributes, extensions, logo URI (logo for tokens, image for nfts), description, etc.) for a list of SPL token mint addresses.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "mint_addresses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "A Solana SPL token mint address (base-58 encoded public key)."
+          },
+          "description": "A list of SPL token mint addresses to fetch detailed information for."
+        }
+      },
+      "required": ["mint_addresses"]
+    }
+  }
+} 

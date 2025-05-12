@@ -444,74 +444,91 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 		b.mutex.Unlock()
 		logger.TelegramDebug("Chat[%d]: Added assistant message (tool request) to session. History length: %d", chatID, len(session))
 
-		// Execute each tool call
-		toolResults := make([]Message, 0, len(response.Message.ToolCalls))
 		for i, toolCall := range response.Message.ToolCalls {
 			toolName := toolCall.Function.Name
-			logger.ToolInfo("Chat[%d] User[%d]: Executing tool call %d/%d: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
+			var toolResultContent string
+			var toolProcessingErr error
+			currentToolCall := toolCall // Mutable copy
 
-			// Automatically inject the user's telegram ID and name for store_person_memory if needed
-			if toolCall.Function.Name == "store_person_memory" {
-				var args map[string]interface{}
-				if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-					logger.ToolError("Chat[%d]: Error parsing tool arguments for %s: %v", chatID, toolName, err)
+			if toolName == "send_urls_as_image" {
+				logger.ToolInfo("Chat[%d] User[%d]: Handling bot action %d/%d: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
+				var args struct {
+					URLs    []string `json:"urls"`
+					Caption string   `json:"caption,omitempty"`
+				}
+				if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
+					logger.ToolError("Chat[%d]: Error parsing arguments for %s: %v", chatID, toolName, err)
+					toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
+					toolProcessingErr = err
 				} else {
-					// Ensure telegram_id exists
-					if _, exists := args["telegram_id"]; !exists {
-						args["telegram_id"] = fmt.Sprintf("%d", userID)
-						logger.ToolDebug("Chat[%d]: Injected telegram_id=%d into %s arguments", chatID, userID, toolName)
-					}
-
-					// Inject person_name if not present
-					if _, exists := args["person_name"]; !exists {
-						b.mutex.RLock()
-						callingUserInfo := b.userInfo[chatID]
-						b.mutex.RUnlock()
-						if callingUserInfo != nil {
-							personName := callingUserInfo.Username
-							if personName == "" { // fallback if no username
-								personName = callingUserInfo.FullName
-							}
-							if personName != "" {
-								args["person_name"] = personName
-								logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
+					toolResultContent, toolProcessingErr = b.SendURLsAsMediaGroup(ctx, chatID, args.URLs, args.Caption)
+				}
+			} else {
+				// Default: use toolRouter, but check for argument injection needs first
+				if toolName == "store_person_memory" {
+					logger.ToolDebug("Chat[%d] User[%d]: Pre-processing args for %s", chatID, userID, toolName)
+					var args map[string]interface{}
+					if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
+						logger.ToolError("Chat[%d]: Error parsing tool arguments for %s arg injection: %v", chatID, toolName, err)
+						toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
+						toolProcessingErr = err
+					} else {
+						if _, exists := args["telegram_id"]; !exists {
+							args["telegram_id"] = fmt.Sprintf("%d", userID)
+							logger.ToolDebug("Chat[%d]: Injected telegram_id=%d into %s arguments", chatID, userID, toolName)
+						}
+						if _, exists := args["person_name"]; !exists {
+							b.mutex.RLock()
+							callingUserInfo := b.userInfo[chatID]
+							b.mutex.RUnlock()
+							if callingUserInfo != nil {
+								personName := callingUserInfo.Username
+								if personName == "" { // fallback if no username
+									personName = callingUserInfo.FullName
+								}
+								if personName != "" {
+									args["person_name"] = personName
+									logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
+								} else {
+									logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s", chatID, userID, toolName)
+								}
 							} else {
-								logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s", chatID, userID, toolName)
+								logger.ToolWarn("Chat[%d]: User info not found for user %d to inject name into %s", chatID, userID, toolName)
 							}
+						}
+						newArgs, err := json.Marshal(args)
+						if err != nil {
+							logger.ToolError("Chat[%d]: Error encoding modified arguments for %s: %v", chatID, toolName, err)
+							toolResultContent = fmt.Sprintf("Error re-encoding arguments for %s: %v", toolName, err)
+							toolProcessingErr = err
 						} else {
-							logger.ToolWarn("Chat[%d]: User info not found for user %d to inject name into %s", chatID, userID, toolName)
+							currentToolCall.Function.Arguments = string(newArgs)
+							// Fall through to toolRouter execution with modified args
 						}
 					}
+				}
 
-					// Re-marshal arguments if modified
-					newArgs, err := json.Marshal(args)
-					if err != nil {
-						logger.ToolError("Chat[%d]: Error encoding modified arguments for %s: %v", chatID, toolName, err)
-					} else {
-						toolCall.Function.Arguments = string(newArgs)
-					}
+				// Execute via toolRouter if not handled as a direct bot action or if there was an error in arg parsing for store_person_memory
+				if toolProcessingErr == nil && toolName != "send_urls_as_image" { // Avoid re-processing if already handled or error in arg parsing
+					logger.ToolInfo("Chat[%d] User[%d]: Executing tool call %d/%d via router: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
+					toolResultContent, toolProcessingErr = b.toolRouter.ExecuteToolCall(ctx, userID, &currentToolCall)
 				}
 			}
 
-			// Execute the tool
-			toolResultContent, toolErr := b.toolRouter.ExecuteToolCall(ctx, userID, &toolCall)
-			if toolErr != nil {
-				logger.ToolError("Chat[%d] User[%d]: Error executing tool %s: %v", chatID, userID, toolName, toolErr)
-				b.bot.SendMessage(ctx, &bot.SendMessageParams{
-					ChatID: chatID,
-					Text:   fmt.Sprintf("Sorry, I encountered an error while trying to use the '%s' tool.", toolName),
-				})
-				return
+			if toolProcessingErr != nil {
+				if toolResultContent == "" { // Ensure toolResultContent has an error message for the LLM
+					toolResultContent = fmt.Sprintf("Error executing tool %s: %v", toolName, toolProcessingErr)
+				}
+				logger.ToolError("Chat[%d] User[%d]: Error processing tool %s: %v. Reporting to LLM: %s", chatID, userID, toolName, toolProcessingErr, toolResultContent)
+			} else {
+				logger.ToolInfo("Chat[%d]: Tool call '%s' processed. Result for LLM: %s", chatID, toolName, toolResultContent)
 			}
-			logger.ToolInfo("Chat[%d]: Tool call '%s' executed successfully.", chatID, toolName)
 
-			// Create a tool response message
 			toolResponse := Message{
 				Role:       "tool",
 				Content:    toolResultContent,
-				ToolCallID: toolCall.ID,
+				ToolCallID: currentToolCall.ID,
 			}
-			toolResults = append(toolResults, toolResponse)
 
 			// Add the tool response to the session immediately
 			b.mutex.Lock()
@@ -665,74 +682,92 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 		b.mutex.Unlock()
 		logger.TelegramDebug("Chat[%d]: Added assistant message (tool request) to session. History length: %d", chatID, len(session))
 
-		// Execute each tool call
-		toolResults := make([]Message, 0, len(response.Message.ToolCalls))
 		for i, toolCall := range response.Message.ToolCalls {
 			toolName := toolCall.Function.Name
-			logger.ToolInfo("Chat[%d] User[%d]: Executing tool call %d/%d: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
+			var toolResultContent string
+			var toolProcessingErr error
+			currentToolCall := toolCall // Mutable copy
 
-			// Automatically inject the user's telegram ID and name for store_person_memory if needed
-			if toolCall.Function.Name == "store_person_memory" {
-				var args map[string]interface{}
-				if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-					logger.ToolError("Chat[%d]: Error parsing tool arguments for %s: %v", chatID, toolName, err)
+			if toolName == "send_urls_as_image" {
+				logger.ToolInfo("Chat[%d] User[%d]: Handling bot action %d/%d: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
+				var args struct {
+					URLs    []string `json:"urls"`
+					Caption string   `json:"caption,omitempty"`
+				}
+				if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
+					logger.ToolError("Chat[%d]: Error parsing arguments for %s: %v", chatID, toolName, err)
+					toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
+					toolProcessingErr = err
 				} else {
-					// Ensure telegram_id exists
-					if _, exists := args["telegram_id"]; !exists {
-						args["telegram_id"] = fmt.Sprintf("%d", userID)
-						logger.ToolDebug("Chat[%d]: Injected telegram_id=%d into %s arguments", chatID, userID, toolName)
-					}
-
-					// Inject person_name if not present
-					if _, exists := args["person_name"]; !exists {
-						b.mutex.RLock()
-						callingUserInfo := b.userInfo[chatID]
-						b.mutex.RUnlock()
-						if callingUserInfo != nil {
-							personName := callingUserInfo.Username
-							if personName == "" { // fallback if no username
-								personName = callingUserInfo.FullName
-							}
-							if personName != "" {
-								args["person_name"] = personName
-								logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
+					toolResultContent, toolProcessingErr = b.SendURLsAsMediaGroup(ctx, chatID, args.URLs, args.Caption)
+				}
+			} else {
+				// Default: use toolRouter, but check for argument injection needs first
+				if toolName == "store_person_memory" {
+					logger.ToolDebug("Chat[%d] User[%d]: Pre-processing args for %s", chatID, userID, toolName)
+					var args map[string]interface{}
+					if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
+						logger.ToolError("Chat[%d]: Error parsing tool arguments for %s arg injection: %v", chatID, toolName, err)
+						toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
+						toolProcessingErr = err
+					} else {
+						if _, exists := args["telegram_id"]; !exists {
+							args["telegram_id"] = fmt.Sprintf("%d", userID)
+							logger.ToolDebug("Chat[%d]: Injected telegram_id=%d into %s arguments", chatID, userID, toolName)
+						}
+						if _, exists := args["person_name"]; !exists {
+							b.mutex.RLock()
+							callingUserInfo := b.userInfo[chatID]
+							b.mutex.RUnlock()
+							if callingUserInfo != nil {
+								personName := callingUserInfo.Username
+								if personName == "" { // fallback if no username
+									personName = callingUserInfo.FullName
+								}
+								if personName != "" {
+									args["person_name"] = personName
+									logger.ToolDebug("Chat[%d]: Injected person_name='%s' into %s arguments", chatID, personName, toolName)
+								} else {
+									logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s", chatID, userID, toolName)
+								}
 							} else {
-								logger.ToolWarn("Chat[%d]: Could not determine person_name for user %d in %s", chatID, userID, toolName)
+								logger.ToolWarn("Chat[%d]: User info not found for user %d to inject name into %s", chatID, userID, toolName)
 							}
+						}
+						newArgs, err := json.Marshal(args)
+						if err != nil {
+							logger.ToolError("Chat[%d]: Error encoding modified arguments for %s: %v", chatID, toolName, err)
+							toolResultContent = fmt.Sprintf("Error re-encoding arguments for %s: %v", toolName, err)
+							toolProcessingErr = err
 						} else {
-							logger.ToolWarn("Chat[%d]: User info not found for user %d to inject name into %s", chatID, userID, toolName)
+							currentToolCall.Function.Arguments = string(newArgs)
+							// Fall through to toolRouter execution with modified args
 						}
 					}
+				}
 
-					// Re-marshal arguments if modified
-					newArgs, err := json.Marshal(args)
-					if err != nil {
-						logger.ToolError("Chat[%d]: Error encoding modified arguments for %s: %v", chatID, toolName, err)
-					} else {
-						toolCall.Function.Arguments = string(newArgs)
-					}
+				// Execute via toolRouter if not handled as a direct bot action or if there was an error in arg parsing for store_person_memory
+				if toolProcessingErr == nil && toolName != "send_urls_as_image" { // Avoid re-processing if already handled or error in arg parsing
+					logger.ToolInfo("Chat[%d] User[%d]: Executing tool call %d/%d via router: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
+					toolResultContent, toolProcessingErr = b.toolRouter.ExecuteToolCall(ctx, userID, &currentToolCall)
 				}
 			}
 
-			// Execute the tool
-			toolResultContent, toolErr := b.toolRouter.ExecuteToolCall(ctx, userID, &toolCall)
-			if toolErr != nil {
-				logger.ToolError("Chat[%d] User[%d]: Error executing tool %s: %v", chatID, userID, toolName, toolErr)
-				b.bot.SendMessage(ctx, &bot.SendMessageParams{
-					ChatID: chatID,
-					Text:   fmt.Sprintf("Sorry, I encountered an error while trying to use the '%s' tool.", toolName),
-				})
-				return
+			if toolProcessingErr != nil {
+				if toolResultContent == "" { // Ensure toolResultContent has an error message for the LLM
+					toolResultContent = fmt.Sprintf("Error executing tool %s: %v", toolName, toolProcessingErr)
+				}
+				logger.ToolError("Chat[%d] User[%d]: Error processing tool %s: %v. Reporting to LLM: %s", chatID, userID, toolName, toolProcessingErr, toolResultContent)
+			} else {
+				logger.ToolInfo("Chat[%d]: Tool call '%s' processed. Result for LLM: %s", chatID, toolName, toolResultContent)
 			}
-			logger.ToolInfo("Chat[%d]: Tool call '%s' executed successfully.", chatID, toolName)
 
 			// Create a tool response message
 			toolResponse := Message{
 				Role:       "tool",
 				Content:    toolResultContent,
-				ToolCallID: toolCall.ID,
+				ToolCallID: currentToolCall.ID,
 			}
-			toolResults = append(toolResults, toolResponse)
 
 			// Add the tool response to the session immediately
 			b.mutex.Lock()

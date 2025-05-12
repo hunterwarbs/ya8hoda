@@ -80,6 +80,9 @@ func (p *PolicyService) IsToolAllowed(userID int64, toolName string) bool {
 		"remember_about_person":    true,
 		"remember_about_self":      true,
 		"remember_about_community": true,
+		"solana_get_tokens":        true,
+		"solana_get_token_info":    true,
+		"send_urls_as_image":       true,
 	}
 
 	return allowedToolsMap[toolName]
@@ -95,6 +98,9 @@ func (p *PolicyService) GetAllowedTools(userID int64) []string {
 		"remember_about_person",
 		"remember_about_self",
 		"remember_about_community",
+		"solana_get_tokens",
+		"solana_get_token_info",
+		"send_urls_as_image",
 	}
 
 	// If user is admin, they can use all defined tools
