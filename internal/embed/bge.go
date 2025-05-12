@@ -171,10 +171,6 @@ func (e *BGEEmbedder) EmbedQuery(ctx context.Context, text string) (core.Embeddi
 			Values:  apiSparse.Values,
 			Shape:   apiSparse.Shape,
 		}
-		log.Printf("Created embedding vectors: dense dim=%d, sparse nnz=%d",
-			len(result.Dense), len(result.Sparse.Values))
-	} else {
-		log.Printf("Created embedding vector with dimension %d (dense only)", len(result.Dense))
 	}
 
 	return result, nil

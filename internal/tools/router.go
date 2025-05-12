@@ -298,11 +298,16 @@ func (r *ToolRouter) ExecuteToolCall(ctx context.Context, userID int64, call *te
 		result = string(jsonRes)
 
 	default:
-		err = fmt.Errorf("unknown tool: %s", call.Function.Name)
+		// Check if it's a known bot action handled elsewhere
+		if call.Function.Name == "send_urls_as_image" || call.Function.Name == "send_voice_note" {
+			err = fmt.Errorf("tool '%s' is handled directly by the bot, not the router", call.Function.Name)
+		} else {
+			err = fmt.Errorf("unknown tool: %s", call.Function.Name)
+		}
 	}
 
 	if err != nil {
-		logger.Error("Tool '%s' execution failed for user %d: %v", call.Function.Name, userID, err)
+		logger.Error("Tool '%s' execution failed or not handled by router for user %d: %v", call.Function.Name, userID, err)
 		return "", err // Return error
 	} else {
 		// Log the result (truncated)

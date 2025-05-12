@@ -1,0 +1,17 @@
+{
+  "type": "function",
+  "function": {
+    "name": "send_voice_note",
+    "description": "Generates a voice note from the provided text message using a text-to-speech service and sends it directly to the chat. **Important: Calling this tool sends the voice message to the user immediately.** Do *not* include the message text in your own response after calling this tool. Use this if the user explicitly asks for a voice response or if a voice note feels more appropriate for the message content.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The text message to be converted into a voice note. This exact text will be sent to the user as a voice message via this tool. **Do NOT repeat this message text in your response after using this tool.**"
+        }
+      },
+      "required": ["message"]
+    }
+  }
+} 

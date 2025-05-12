@@ -16,6 +16,7 @@ import (
 
 	"github.com/hunterwarburton/ya8hoda/internal/auth"
 	"github.com/hunterwarburton/ya8hoda/internal/core"
+	"github.com/hunterwarburton/ya8hoda/internal/elevenlabs"
 	embedder "github.com/hunterwarburton/ya8hoda/internal/embed"
 	"github.com/hunterwarburton/ya8hoda/internal/llm"
 	"github.com/hunterwarburton/ya8hoda/internal/logger"
@@ -30,20 +31,22 @@ var embeddedFS embed.FS
 
 // Config represents the application configuration.
 type Config struct {
-	TelegramToken    string
-	OpenRouterAPIKey string
-	OpenRouterModel  string
-	MilvusHost       string
-	MilvusPort       string
-	LogLevel         string
-	AdminUserIDs     string
-	AllowedUserIDs   string
-	EmbeddingDim     int
-	CharacterFile    string
-	MilvusUser       string
-	MilvusPassword   string
-	MilvusCollection string
-	MilvusUseSSL     bool
+	TelegramToken     string
+	OpenRouterAPIKey  string
+	OpenRouterModel   string
+	MilvusHost        string
+	MilvusPort        string
+	LogLevel          string
+	AdminUserIDs      string
+	AllowedUserIDs    string
+	EmbeddingDim      int
+	CharacterFile     string
+	MilvusUser        string
+	MilvusPassword    string
+	MilvusCollection  string
+	MilvusUseSSL      bool
+	ElevenLabsAPIKey  string
+	ElevenLabsVoiceID string
 }
 
 // Character represents the character configuration loaded from JSON.
@@ -82,20 +85,22 @@ func loadConfig() *Config {
 	embeddingDim := 1024 // Default embedding dimension for BGE-M3
 
 	return &Config{
-		TelegramToken:    os.Getenv("TG_BOT_TOKEN"),
-		OpenRouterAPIKey: os.Getenv("OPENROUTER_API_KEY"),
-		OpenRouterModel:  getEnvWithDefault("OPENROUTER_MODEL", "meta-llama/llama-3-70b-instruct"),
-		MilvusHost:       "127.0.0.1",
-		MilvusPort:       getEnvWithDefault("MILVUS_PORT", "19530"),
-		LogLevel:         getEnvWithDefault("LOG_LEVEL", "info"),
-		AdminUserIDs:     os.Getenv("ADMIN_USER_IDS"),
-		AllowedUserIDs:   os.Getenv("ALLOWED_USER_IDS"),
-		EmbeddingDim:     embeddingDim,
-		CharacterFile:    getEnvWithDefault("CHARACTER_FILE", "cmd/bot/character.json"),
-		MilvusUser:       getenv("MILVUS_USER", ""),
-		MilvusPassword:   getenv("MILVUS_PASSWORD", ""),
-		MilvusCollection: getenv("MILVUS_COLLECTION_NAME", "a_collection"),
-		MilvusUseSSL:     getenvBool("MILVUS_USE_SSL", false),
+		TelegramToken:     os.Getenv("TG_BOT_TOKEN"),
+		OpenRouterAPIKey:  os.Getenv("OPENROUTER_API_KEY"),
+		OpenRouterModel:   getEnvWithDefault("OPENROUTER_MODEL", "meta-llama/llama-3-70b-instruct"),
+		MilvusHost:        "127.0.0.1",
+		MilvusPort:        getEnvWithDefault("MILVUS_PORT", "19530"),
+		LogLevel:          getEnvWithDefault("LOG_LEVEL", "info"),
+		AdminUserIDs:      os.Getenv("ADMIN_USER_IDS"),
+		AllowedUserIDs:    os.Getenv("ALLOWED_USER_IDS"),
+		EmbeddingDim:      embeddingDim,
+		CharacterFile:     getEnvWithDefault("CHARACTER_FILE", "cmd/bot/character.json"),
+		MilvusUser:        getenv("MILVUS_USER", ""),
+		MilvusPassword:    getenv("MILVUS_PASSWORD", ""),
+		MilvusCollection:  getenv("MILVUS_COLLECTION_NAME", "a_collection"),
+		MilvusUseSSL:      getenvBool("MILVUS_USE_SSL", false),
+		ElevenLabsAPIKey:  os.Getenv("ELEVENLABS_API_KEY"),
+		ElevenLabsVoiceID: os.Getenv("ELEVENLABS_VOICE_ID"),
 	}
 }
 
@@ -187,6 +192,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Validate ElevenLabs config (optional, but recommended if TTS is crucial)
+	// if config.ElevenLabsAPIKey == "" || config.ElevenLabsVoiceID == "" {
+	// 	logger.Warn("ELEVENLABS_API_KEY or ELEVENLABS_VOICE_ID not set. Voice note generation will be disabled.")
+	// 	// You could choose to exit here if TTS is required: os.Exit(1)
+	// }
+
 	// Load character configuration
 	character, err := loadCharacter(config.CharacterFile)
 	if err != nil {
@@ -247,18 +258,22 @@ func main() {
 	logger.Info("RAG Service initialized.")
 	// --- RAG Service Initialized ---
 
-	// Initialize OpenRouter LLM service with character configuration
-	llmService := llm.NewOpenRouterService(config.OpenRouterAPIKey, config.OpenRouterModel)
-	// Wire in the RAG service so the LLM can pull relevant facts for prompting
-	llmService.SetRAGService(ragService)
+	// --- Initialize ElevenLabs Service ---
+	logger.Info("Initializing ElevenLabs Service...")
+	elevenlabsClient := elevenlabs.NewClient(config.ElevenLabsAPIKey, config.ElevenLabsVoiceID)
+	logger.Info("ElevenLabs Service initialized (may be disabled if key/voice ID missing).")
+	// --- ElevenLabs Service Initialized ---
 
-	// Set character configuration in the OpenRouterService
-	// The service should already implement the CharacterAware interface
+	// Initialize OpenRouter LLM service with character configuration
+	logger.Info("Initializing LLM Service...")
+	llmService := llm.NewOpenRouterService(config.OpenRouterAPIKey, config.OpenRouterModel)
 	if err := llmService.SetCharacter(character); err != nil {
-		logger.Error("Failed to set character configuration: %v", err)
-	} else {
-		logger.Info("Character '%s' set for the LLM service", character.Name)
+		logger.Error("Failed to set character for LLM service: %v", err)
+		os.Exit(1)
 	}
+	// Wire RAG service into LLM service
+	llmService.SetRAGService(ragService)
+	logger.Info("LLM Service initialized.")
 
 	// Ensure character facts are loaded if needed (outside the removed block)
 	if milvusClient != nil && embedService != nil {
@@ -297,41 +312,50 @@ func main() {
 		logger.Info("RAG service or embed service not available, skipping loading character facts into Milvus")
 	}
 
-	// Initialize tool router (now uses the initialized ragService and embedService)
-	toolRouter := tools.NewToolRouter(policyService, ragService, embedService) // Pass core interfaces
+	// Initialize Tool Router
+	logger.Info("Initializing Tool Router...")
+	toolRouter := tools.NewToolRouter(policyService, ragService, embedService) // Pass embedService
+	logger.Info("Tool Router initialized.")
 
-	// Initialize Telegram bot
-	bot, err := telegram.NewBot(config.TelegramToken, llmService, embedService, toolRouter, policyService, ragService) // Pass core.EmbedService and ragService
+	// Initialize Telegram Bot
+	logger.Info("Initializing Telegram Bot...")
+	tgBot, err := telegram.NewBot(
+		config.TelegramToken,
+		llmService,
+		elevenlabsClient, // Pass ElevenLabs client
+		embedService,     // Pass EmbedService
+		toolRouter,
+		policyService,
+		ragService,
+	)
 	if err != nil {
 		logger.Error("Failed to initialize Telegram bot: %v", err)
 		os.Exit(1)
 	}
+	logger.Info("Telegram Bot initialized.")
 
-	// Set the character prompt in the Telegram bot
-	systemPrompt := buildSystemPromptFromCharacter(character)
-	bot.SetCharacter(systemPrompt)
-	logger.Info("Character prompt set for Telegram bot")
+	// Start the bot in a separate goroutine
+	go func() {
+		logger.Info("Starting bot polling...")
+		tgBot.Start(ctx)
+		logger.Info("Bot polling stopped.")
+	}()
 
-	// Start the bot
-	logger.Info("Starting bot...")
-	go bot.Start(ctx)
+	// Wait for termination signal
+	logger.Info("Bot started. Press Ctrl+C to exit.")
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	<-signalChan
 
-	// Set up graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	logger.Info("Shutdown signal received, stopping bot...")
+	// Cancel the context to signal shutdown
+	cancel()
 
-	// Wait for shutdown signal
-	<-quit
-	logger.Info("Shutting down bot...")
+	// Wait a bit for services to shut down gracefully
+	// Add specific shutdown logic for services if needed (e.g., MilvusClient.Close())
+	time.Sleep(2 * time.Second)
 
-	// Create a context with timeout for shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	// Perform cleanup
-	bot.Stop(shutdownCtx)
-
-	logger.Info("Bot has been shut down")
+	logger.Info("Bot stopped.")
 }
 
 // buildSystemPromptFromCharacter creates a system prompt string from a character

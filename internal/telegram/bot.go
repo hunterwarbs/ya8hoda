@@ -36,6 +36,11 @@ type LLMService interface {
 	GenerateImage(ctx context.Context, prompt, size, style string) (string, error)
 }
 
+// ElevenLabsService defines the interface for interacting with ElevenLabs.
+type ElevenLabsService interface {
+	TextToSpeech(ctx context.Context, text string) ([]byte, error)
+}
+
 // EmbedService interface definition removed. Using core.EmbedService.
 
 // ToolRouter defines the interface for routing and executing tool calls.
@@ -80,6 +85,7 @@ type ChatResponse struct {
 type Bot struct {
 	bot            *bot.Bot
 	llm            LLMService
+	elevenlabs     ElevenLabsService
 	embed          core.EmbedService
 	toolRouter     ToolRouter
 	policyService  PolicyService
@@ -93,9 +99,10 @@ type Bot struct {
 }
 
 // NewBot creates a new bot instance.
-func NewBot(token string, llm LLMService, embed core.EmbedService, toolRouter ToolRouter, policyService PolicyService, rag core.RAGService) (*Bot, error) {
+func NewBot(token string, llm LLMService, elevenlabs ElevenLabsService, embed core.EmbedService, toolRouter ToolRouter, policyService PolicyService, rag core.RAGService) (*Bot, error) {
 	b := &Bot{
 		llm:            llm,
+		elevenlabs:     elevenlabs,
 		embed:          embed,
 		toolRouter:     toolRouter,
 		policyService:  policyService,
@@ -374,9 +381,11 @@ const maxToolRounds = 5 // Maximum number of tool call rounds
 func (b *Bot) processLLMInteraction(ctx context.Context, chatID int64, userID int64, session []Message, toolSpecs []interface{}, userInfo *UserInfo) (*ChatResponse, error) {
 	var response *ChatResponse
 	var err error
+	var voiceNoteSentInLastSuccessfulRound bool = false // Track if the *last completed round* sent a voice note
 
 	for round := 0; round < maxToolRounds; round++ {
 		logger.LLMDebug("Chat[%d]: Initiating LLM call (Round %d). History length: %d", chatID, round+1, len(session))
+		currentRoundSentVoiceNote := false // Track for *this specific* round
 
 		if userInfo != nil {
 			response, err = b.llm.ChatCompletionWithUserInfo(ctx, session, toolSpecs, userInfo)
@@ -392,6 +401,10 @@ func (b *Bot) processLLMInteraction(ctx context.Context, chatID int64, userID in
 		// Check if the LLM response contains tool calls
 		if len(response.Message.ToolCalls) == 0 {
 			logger.LLMDebug("Chat[%d]: LLM response (Round %d) has no tool calls. Final response.", chatID, round+1)
+			if voiceNoteSentInLastSuccessfulRound {
+				logger.TelegramInfo("Chat[%d]: Suppressing final text response because a voice note was sent in the previous round.", chatID)
+				response.Message.Content = "" // Clear the content
+			}
 			return response, nil // No tool calls, this is the final response
 		}
 
@@ -410,10 +423,15 @@ func (b *Bot) processLLMInteraction(ctx context.Context, chatID int64, userID in
 		// Check if we've reached the maximum rounds *before* executing tools for this round
 		if round == maxToolRounds-1 {
 			logger.LLMWarn("Chat[%d]: Maximum tool call rounds (%d) reached. Returning last response which still requests tools.", chatID, maxToolRounds)
+			if voiceNoteSentInLastSuccessfulRound {
+				logger.TelegramInfo("Chat[%d]: Suppressing final text response (max rounds) because a voice note was sent in the previous round.", chatID)
+				response.Message.Content = "" // Clear the content
+			}
 			return response, nil // Return the response that requested tools, caller handles it
 		}
 
 		// Execute all tool calls from this round
+		roundHadSuccessfulToolCall := false // Track if *any* tool call succeeded in this round
 		for i, toolCall := range response.Message.ToolCalls {
 			toolName := toolCall.Function.Name
 			var toolResultContent string
@@ -432,15 +450,37 @@ func (b *Bot) processLLMInteraction(ctx context.Context, chatID int64, userID in
 					toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
 					toolProcessingErr = err
 				} else {
-					go func() {
-						bgCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // 60-second timeout for sending media
-						defer cancel()
-						_, sendErr := b.SendURLsAsMediaGroup(bgCtx, chatID, args.URLs, args.Caption)
-						if sendErr != nil {
-							logger.ToolError("Chat[%d]: Error in background sending media group for %s: %v", chatID, toolName, sendErr)
-						}
-					}()
-					toolResultContent = fmt.Sprintf("Bot action '%s' initiated successfully to send %d URLs with caption '%s'. The user will see the images separately.", toolName, len(args.URLs), args.Caption)
+					// Call the synchronous method directly
+					toolResultContent, toolProcessingErr = b.SendURLsAsMediaGroup(ctx, chatID, args.URLs, args.Caption)
+					// The actual error is stored in toolProcessingErr, result in toolResultContent
+					if toolProcessingErr != nil {
+						logger.ToolError("Chat[%d]: SendURLsAsMediaGroup failed for %s: %v", chatID, toolName, toolProcessingErr)
+						// toolResultContent already contains the error message from SendURLsAsMediaGroup
+					} else {
+						logger.ToolInfo("Chat[%d]: SendURLsAsMediaGroup completed successfully for %s", chatID, toolName)
+					}
+				}
+			} else if toolName == "send_voice_note" {
+				logger.ToolInfo("Chat[%d] User[%d]: Handling bot action %d/%d: %s", chatID, userID, i+1, len(response.Message.ToolCalls), toolName)
+				var args struct {
+					Message string `json:"message"`
+				}
+				if err := json.Unmarshal([]byte(currentToolCall.Function.Arguments), &args); err != nil {
+					logger.ToolError("Chat[%d]: Error parsing arguments for %s: %v", chatID, toolName, err)
+					toolResultContent = fmt.Sprintf("Error parsing arguments for %s: %v", toolName, err)
+					toolProcessingErr = err
+				} else {
+					// Call the synchronous method directly
+					toolResultContent, toolProcessingErr = b.sendVoiceNoteTool(ctx, chatID, args.Message)
+					// The actual error is stored in toolProcessingErr, result in toolResultContent
+					if toolProcessingErr != nil {
+						logger.ToolError("Chat[%d]: sendVoiceNoteTool failed for %s: %v", chatID, toolName, toolProcessingErr)
+						// toolResultContent already contains the error message from sendVoiceNoteTool
+					} else {
+						logger.ToolInfo("Chat[%d]: sendVoiceNoteTool completed successfully for %s", chatID, toolName)
+						currentRoundSentVoiceNote = true // Mark that voice was sent *this* round
+						roundHadSuccessfulToolCall = true
+					}
 				}
 			} else {
 				// Default: use toolRouter, check for arg injection
@@ -484,9 +524,12 @@ func (b *Bot) processLLMInteraction(ctx context.Context, chatID int64, userID in
 				}
 
 				// Execute via toolRouter if not handled directly or error in arg parsing
-				if toolProcessingErr == nil && toolName != "send_urls_as_image" {
+				if toolProcessingErr == nil && toolName != "send_urls_as_image" && toolName != "send_voice_note" {
 					logger.ToolInfo("Chat[%d] User[%d]: Executing tool call %d/%d via router: %s (Round %d)", chatID, userID, i+1, len(response.Message.ToolCalls), toolName, round+1)
 					toolResultContent, toolProcessingErr = b.toolRouter.ExecuteToolCall(ctx, userID, &currentToolCall)
+					if toolProcessingErr == nil { // Check if router execution was successful
+						roundHadSuccessfulToolCall = true
+					}
 				}
 			}
 			// --- End Tool Processing Logic ---
@@ -515,6 +558,11 @@ func (b *Bot) processLLMInteraction(ctx context.Context, chatID int64, userID in
 			b.mutex.Unlock()
 			logger.TelegramDebug("Chat[%d]: Added tool result (%s) to session. History length: %d", chatID, toolName, len(session))
 		}
+
+		// Update the flag for the *next* iteration's check, only if a tool actually succeeded.
+		// We only care if a voice note was sent in a round where *at least one tool* succeeded.
+		voiceNoteSentInLastSuccessfulRound = currentRoundSentVoiceNote && roundHadSuccessfulToolCall
+
 		// --- Loop continues to the next LLM call ---
 	}
 

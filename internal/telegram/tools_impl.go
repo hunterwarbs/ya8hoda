@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -163,6 +164,48 @@ func (b *Bot) SendURLsAsMediaGroup(ctx context.Context, chatID int64, urls []str
 	}
 	logger.TelegramInfo("Chat[%d]: Successfully sent media group with %d images.", chatID, len(mediaItems))
 	return resultMsg, nil
+}
+
+// sendVoiceNoteTool handles the generation and sending of a voice note synchronously.
+func (b *Bot) sendVoiceNoteTool(ctx context.Context, chatID int64, messageText string) (string, error) {
+	if b.elevenlabs == nil {
+		logger.ToolError("Chat[%d]: ElevenLabs service is not configured, cannot perform send_voice_note.", chatID)
+		return "Error: Text-to-speech service is not available.", fmt.Errorf("elevenlabs service not configured")
+	}
+
+	// Generate audio data
+	// Use a timeout context appropriate for TTS generation
+	ttsCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // 60-second timeout for TTS
+	defer cancel()
+	audioData, ttsErr := b.elevenlabs.TextToSpeech(ttsCtx, messageText)
+	if ttsErr != nil {
+		logger.ToolError("Chat[%d]: Error generating voice note via ElevenLabs: %v", chatID, ttsErr)
+		// Return a user-friendly error message, but also the internal error
+		return fmt.Sprintf("Error generating voice note: %v", ttsErr), ttsErr
+	}
+
+	logger.ToolInfo("Chat[%d]: Generated voice note (%d bytes). Sending...", chatID, len(audioData))
+
+	// Send the voice note
+	// Use a separate timeout context for sending the voice message
+	sendCtx, sendCancel := context.WithTimeout(ctx, 30*time.Second) // 30-second timeout for upload
+	defer sendCancel()
+	_, sendErr := b.bot.SendVoice(sendCtx, &bot.SendVoiceParams{
+		ChatID: chatID,
+		Voice: &models.InputFileUpload{
+			Filename: "voice.ogg", // Telegram prefers ogg
+			Data:     bytes.NewReader(audioData),
+		},
+	})
+
+	if sendErr != nil {
+		logger.ToolError("Chat[%d]: Error sending voice note: %v", chatID, sendErr)
+		return fmt.Sprintf("Error sending voice note: %v", sendErr), sendErr
+	}
+
+	logger.ToolInfo("Chat[%d]: Successfully sent voice note.", chatID)
+	// Return a minimal success message, less likely to prompt the LLM to comment.
+	return "OK", nil
 }
 
 func firstWords(value string, count int) string {
