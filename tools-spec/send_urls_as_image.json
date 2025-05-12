@@ -2,7 +2,7 @@
   "type": "function",
   "function": {
     "name": "send_urls_as_image",
-    "description": "Fetches images from a list of URLs and sends them as a media group (album) in the chat. Can also include an optional caption for the album.",
+    "description": "If the users asks anything like 'show me nfts', you should use this function to show them. Fetches images from a list of URLs and sends them as a media group (album) in the chat. Can also include an optional caption for the album.",
     "parameters": {
       "type": "object",
       "properties": {
