@@ -17,6 +17,7 @@ import (
 
 const maxTotalMediaSize = 45 * 1024 * 1024 // 45 MB as a safety margin
 const jpegReEncodeQuality = 75             // Quality for JPEG re-encoding
+const estimatedSpeakingWPM = 150.0         // Words per minute for TTS voice duration estimation
 
 // SendURLsAsMediaGroup is a method on the Bot struct to send images from URLs as a media group.
 // It downloads images first, attempts re-encoding if needed, and uses the attach:// scheme.
@@ -173,16 +174,45 @@ func (b *Bot) sendVoiceNoteTool(ctx context.Context, chatID int64, messageText s
 		return "Error: Text-to-speech service is not available.", fmt.Errorf("elevenlabs service not configured")
 	}
 
+	// --- Calculate and apply delay ---
+	startTime := time.Now()
+
 	// Generate audio data
 	// Use a timeout context appropriate for TTS generation
 	ttsCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // 60-second timeout for TTS
 	defer cancel()
 	audioData, ttsErr := b.elevenlabs.TextToSpeech(ttsCtx, messageText)
+
+	elevenLabsQueryDuration := time.Since(startTime)
+
 	if ttsErr != nil {
 		logger.ToolError("Chat[%d]: Error generating voice note via ElevenLabs: %v", chatID, ttsErr)
 		// Return a user-friendly error message, but also the internal error
 		return fmt.Sprintf("Error generating voice note: %v", ttsErr), ttsErr
 	}
+
+	wordCount := len(strings.Fields(messageText))
+	var estimatedAudioDuration time.Duration
+	if wordCount > 0 {
+		estimatedAudioDurationSeconds := (float64(wordCount) / estimatedSpeakingWPM) * 100.0
+		estimatedAudioDuration = time.Duration(estimatedAudioDurationSeconds * float64(time.Second))
+	}
+
+	delayNeeded := estimatedAudioDuration - elevenLabsQueryDuration
+
+	if delayNeeded > 0 {
+		logger.ToolDebug("Chat[%d]: TTS query took %v. Estimated audio duration %v. Waiting for an additional %v before sending voice note.", chatID, elevenLabsQueryDuration, estimatedAudioDuration, delayNeeded)
+		select {
+		case <-time.After(delayNeeded):
+			// Delay elapsed
+		case <-ctx.Done():
+			logger.ToolWarn("Chat[%d]: Context cancelled during voice note pre-send delay. Error: %v", chatID, ctx.Err())
+			return "Voice note generation cancelled", ctx.Err()
+		}
+	} else {
+		logger.ToolDebug("Chat[%d]: TTS query took %v. Estimated audio duration %v. No additional delay needed before sending voice note.", chatID, elevenLabsQueryDuration, estimatedAudioDuration)
+	}
+	// --- End delay calculation and application ---
 
 	logger.ToolInfo("Chat[%d]: Generated voice note (%d bytes). Sending...", chatID, len(audioData))
 

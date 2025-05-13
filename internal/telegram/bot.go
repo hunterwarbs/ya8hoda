@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -586,6 +587,12 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 	session := b.getOrCreateSession(chatID)
 	logger.TelegramDebug("Chat[%d]: Session retrieved/created. History length: %d", chatID, len(session))
 
+	// Apply initial delay before showing typing
+	b.applyInitialTypingDelay(ctx, chatID, "text")
+	if ctx.Err() != nil { // Check if context was cancelled during delay
+		return
+	}
+
 	// Start typing indicator
 	typingDone := make(chan struct{})
 	go b.sendContinuousTypingAction(ctx, chatID, typingDone)
@@ -653,6 +660,12 @@ func (b *Bot) handleTextMessage(ctx context.Context, message *models.Message) {
 	}
 	logger.TelegramInfo("Chat[%d]: Sending final response to Telegram: \"%s\"", chatID, logPreview)
 
+	// Apply WPM-based delay before sending
+	b.applyWPMResponseDelay(ctx, chatID, finalContent, "text")
+	if ctx.Err() != nil { // Check if context was cancelled during delay
+		return
+	}
+
 	// Send the response
 	b.bot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: chatID,
@@ -673,6 +686,12 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 	// Get the current session for this chat
 	session := b.getOrCreateSession(chatID)
 	logger.TelegramDebug("Chat[%d]: Session retrieved/created. History length: %d", chatID, len(session))
+
+	// Apply initial delay before showing typing
+	b.applyInitialTypingDelay(ctx, chatID, "photo")
+	if ctx.Err() != nil { // Check if context was cancelled during delay
+		return
+	}
 
 	// Start typing indicator
 	typingDone := make(chan struct{})
@@ -762,6 +781,12 @@ func (b *Bot) handlePhotoMessage(ctx context.Context, message *models.Message) {
 		logPreview = logPreview[:80] + "..."
 	}
 	logger.TelegramInfo("Chat[%d]: Sending final response (image context) to Telegram: \"%s\"", chatID, logPreview)
+
+	// Apply WPM-based delay before sending
+	b.applyWPMResponseDelay(ctx, chatID, finalContent, "photo")
+	if ctx.Err() != nil { // Check if context was cancelled during delay
+		return
+	}
 
 	// Send the response
 	b.bot.SendMessage(ctx, &bot.SendMessageParams{
@@ -1072,3 +1097,47 @@ func (b *Bot) filterToolSpecs(userID int64) ([]interface{}, error) {
 
 // SendURLsAsMediaGroup sends multiple photos specified by URL as a media group.
 // ... existing code ...
+
+// applyInitialTypingDelay waits for a random duration before any typing indicator is shown.
+func (b *Bot) applyInitialTypingDelay(ctx context.Context, chatID int64, messageType string) {
+	initialDelayMs := rand.Intn(3001) + 2000 // 2000ms to 5000ms (2-5 seconds)
+	initialDelayDuration := time.Duration(initialDelayMs) * time.Millisecond
+	logger.TelegramDebug("Chat[%d]: Waiting %v before starting typing indicator for %s message.", chatID, initialDelayDuration, messageType)
+
+	select {
+	case <-time.After(initialDelayDuration):
+		// Delay elapsed
+	case <-ctx.Done():
+		logger.TelegramDebug("Chat[%d]: Context cancelled during initial typing delay for %s message.", chatID, messageType)
+		return
+	}
+}
+
+// applyWPMResponseDelay waits for a duration calculated based on WPM before sending a message.
+func (b *Bot) applyWPMResponseDelay(ctx context.Context, chatID int64, messageContent string, messageType string) {
+	if messageContent == "" {
+		return
+	}
+	words := strings.Fields(messageContent)
+	wordCount := len(words)
+	if wordCount == 0 {
+		return
+	}
+
+	minWPM := 50.0
+	maxWPM := 60.0
+	currentWPM := minWPM + rand.Float64()*(maxWPM-minWPM)
+
+	typingDurationSeconds := (float64(wordCount) / currentWPM) * 60.0
+	wpmDelayDuration := time.Duration(typingDurationSeconds * float64(time.Second))
+
+	logger.TelegramDebug("Chat[%d]: Calculated WPM delay (%s): %v for %d words at %.2f WPM.", chatID, messageType, wpmDelayDuration, wordCount, currentWPM)
+
+	select {
+	case <-time.After(wpmDelayDuration):
+		// Delay elapsed
+	case <-ctx.Done():
+		logger.TelegramDebug("Chat[%d]: Context cancelled during WPM response delay for %s message.", chatID, messageType)
+		return
+	}
+}
