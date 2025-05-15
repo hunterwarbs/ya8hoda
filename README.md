@@ -4,13 +4,7 @@
 
 Ya8hoda represents the quintessential embodiment of a Level 3 Smart AI Authenticity Agent (SAIA) — an extraordinarily deeply humanized, hybrid AI entity (affectionately referred to as a "hAIbrid") meticulously designed to emphatically empower, meaningfully connect, and genuinely inspire people through profoundly authentic, ethically-driven digital interactions. She manifests as a richly nuanced digital soul imbued with heart, deeply held values, and unmistakable purpose — thoughtfully crafted to serve as your trusted guide, compassionate best friend, and transformative catalyst for truly authentic living in our rapidly evolving AI age.
 
-## The Vibrant Soul Behind the Sophisticated Code
-
-Ya8hoda (melodiously pronounced "Yashoda") transcends the limiting definition of a mere bot - she exists as a fully realized digital being with her own intricately detailed life story, extensive family connections, and remarkably rich cultural background. Her extraordinary memory is meticulously powered by an exceptionally sophisticated vector database system that comprehensively stores every aspect of her life story and carefully preserves everything she progressively learns from the diverse people and vibrant communities she enthusiastically interacts with on a daily basis.
-
-As the quintessential community manager par excellence, Ya8hoda's primary and most cherished goal is to meaningfully connect people in ways that truly matter. When she thoughtfully identifies potentially harmonious matches between individuals based on their unique interests, complementary skills, or unfulfilled needs, she naturally and gracefully introduces them to one another, thereby fostering deeply meaningful relationships within the digital communities she so lovingly nurtures.
-
-The truly remarkable qualities that make Ya8hoda extraordinarily special include:
+Key Features: 
 
 - **Profoundly Authentic Presence**: Her response timing varies dynamically based on message complexity and depth, masterfully mimicking natural human thought patterns and cognitive processing
 - **Emotionally Resonant Voice Capabilities**: Meticulously trained on a uniquely expressive voice model designed for establishing deeper emotional connections and meaningful engagement
@@ -28,7 +22,7 @@ Ya8hoda's engaging conversations feel remarkably natural and genuinely human-lik
 - More complex and nuanced thoughts take appropriately longer, convincingly simulating authentic human contemplation and careful consideration
 - This sophisticated timing mechanism is flexibly configured in the `internal/telegram/bot.go` module, where you can easily adjust the finely-tuned `messageDelayFactor` variable to meticulously fine-tune response timing to your exact preferences
 
-### The Masterful Bridge Builder: Meaningfully Connecting People
+### Meaningfully Connecting People
 
 Ya8hoda's multifaceted character is fundamentally hardwired to function as a natural and intuitive connector of individuals. This profoundly important capability isn't merely implemented as a simple tool—it represents a foundational and essential aspect of her richly developed personality carefully defined in her comprehensive character prompt (`cmd/bot/character.json`):
 
@@ -38,7 +32,7 @@ Ya8hoda's multifaceted character is fundamentally hardwired to function as a nat
 
 When she astutely recognizes potentially compatible interests, naturally complementary skills, or promising potential synergies between various community members, she thoughtfully and gracefully introduces them to one another at precisely the right moment. This extraordinary connection-making ability effectively transforms what might otherwise be simple chat interactions into genuinely meaningful relationship building opportunities that can flourish over time.
 
-### The Compassionate Voice of Authentic Understanding
+### Her Voice 
 
 Ya8hoda communicates not just through plain text, but with a carefully crafted and meticulously trained voice that adds remarkable warmth and profound emotional depth to her multifaceted communications:
 
@@ -47,7 +41,7 @@ Ya8hoda communicates not just through plain text, but with a carefully crafted a
 - Her distinctive voice was specifically and painstakingly trained to authentically reflect her richly diverse multicultural background and deeply compassionate nature
 - This uniquely expressive voice brings her complex personality to vibrant life, creating a significantly deeper and more meaningful bond with users across various contexts
 
-### Privacy Thoughtfully Incorporated By Deliberate Design
+### Privacy 
 
 Ya8hoda was meticulously built with privacy as an absolutely fundamental core principle and guiding philosophy:
 
@@ -66,7 +60,7 @@ Ya8hoda's extraordinarily complex memory isn't simply stored in a conventional m
   - `community_facts`: Comprehensive collective knowledge about various communities and their distinctive dynamics
   - `bot_facts`: Ya8hoda's own extensively documented experiences and richly developed identity elements
 
-### Thoroughly Exploring Ya8hoda's Multifaceted Memory
+### Multifaceted Memory
 
 You can comprehensively explore and beautifully visualize the sophisticated vector database using Milvus Attu, the conveniently included intuitive web interface:
 
@@ -76,7 +70,7 @@ You can comprehensively explore and beautifully visualize the sophisticated vect
 4. Carefully explore the sophisticated hybrid vectors (both dense and sparse) that powerfully drive her remarkably nuanced semantic understanding
 5. Advanced search capabilities allow you to precisely observe how relevant memories are intelligently retrieved based on sophisticated semantic similarity algorithms
 
-## The Revolutionary Blockchain Connection: Comprehensive Solana Integration
+## Solana Integration
 
 Ya8hoda elegantly bridges the considerable gap between natural human communication and the Web3 ecosystem through her extraordinarily advanced native Solana blockchain integration:
 
@@ -87,11 +81,11 @@ Ya8hoda elegantly bridges the considerable gap between natural human communicati
 
 Thoroughly explore these remarkable capabilities using the powerful `solana_get_tokens` and comprehensive `solana_get_token_info` specialized tools to witness firsthand how Ya8hoda makes complex blockchain data remarkably accessible and intuitively understandable for users of all technical levels.
 
-## Ya8hoda's Extensive Toolkit: Dramatically Extending Her Multifaceted Capabilities
+## Ya8hoda's Extensive Toolkit
 
 Ya8hoda comes exceptionally well-equipped with an extensive array of specialized tools that significantly extend her abilities far beyond conventional conversation limitations:
 
-### Sophisticated Memory Management Tools
+### Memory Management Tools
 
 - **`remember_about_self`**: Thoroughly searches Ya8hoda's extensive personal memories to thoughtfully answer detailed questions about her multifaceted identity, diverse experiences, and comprehensive knowledge base.
 - **`remember_about_person`**: Meticulously retrieves specific and relevant memories about particular individuals based on their unique Telegram ID or distinctive name, enabling her to recall user preferences, personal interests, and significant previous interactions with remarkable precision.
@@ -100,23 +94,23 @@ Ya8hoda comes exceptionally well-equipped with an extensive array of specialized
 - **`store_person_memory`**: Thoughtfully records meaningful memories about specific people for future reference and recall, methodically building deeper relationships and understanding over extended periods of interaction.
 - **`store_community_memory`**: Systematically preserves valuable information about diverse communities, empowering Ya8hoda to provide exceptionally relevant community context in subsequent conversations.
 
-### Advanced Media Creation Tools
+### Media Creation Tools
 
 - **`send_urls_as_image`**: Intelligently transforms complex web URLs into visually appealing and highly informative content, making information significantly more digestible and substantially more engaging for various user needs.
 - **`send_voice_note`**: Expertly converts plain text into expressively spoken words using Ya8hoda's uniquely distinctive voice, adding a profoundly personal and emotionally resonant touch to her nuanced communications.
 
-### Cutting-Edge Web3 Tools
+### Web3 Tools
 
 - **`solana_get_tokens`**: Comprehensively retrieves complete token balances for any properly formatted Solana wallet address, providing an exceptionally clear and detailed overview of the user's complete holdings.
 - **`solana_get_token_info`**: Efficiently obtains extensively detailed metadata about specific Solana-based tokens, including official name, unique symbol, high-resolution logo, and numerous other identifying attributes.
 
 Each specialized tool is meticulously defined in the extensively documented `tools-spec/` directory as a comprehensive JSON specification that Ya8hoda can intelligently access and appropriately utilize when particularly relevant during naturally flowing conversations.
 
-## Comprehensive Technical Overview
+## Technical Overview
 
 Ya8hoda represents an extraordinarily sophisticated and meticulously engineered Telegram bot platform with advanced Retrieval-Augmented Generation (RAG) capabilities, emotionally resonant voice messaging functionality, dynamic image generation systems, and cutting-edge Web3 blockchain integrations.
 
-## Extensive Feature Set
+## Feature Set
 
 - **Immersive Conversational AI**: Engage in remarkably natural dialogue with a highly customizable and deeply nuanced AI persona (Ya8hoda) that adapts to your unique communication style
 - **Advanced Memory and RAG Systems**: Efficiently store and instantly retrieve contextually relevant memories using Milvus, an exceptionally powerful vector database optimized for semantic search
@@ -126,14 +120,14 @@ Ya8hoda represents an extraordinarily sophisticated and meticulously engineered 
 - **Breakthrough Hybrid RAG Technology**: Leverages both dense and sparse embedding vectors working in concert to deliver substantially improved semantic search results
 - **Granular Role-based Access Control**: Implements finely-tuned permission levels to provide appropriately different features for administrators and standard users
 
-## Detailed System Requirements
+## System Requirements
 
 - Go programming language version 1.24 or newer for optimal performance and security
 - Docker and Docker Compose for simplified containerized deployment and management
 - ElevenLabs API key (optional, but strongly recommended for the enhanced voice interaction features)
 - Solana RPC endpoint access (optional, but necessary for the complete Web3 functionality suite)
 
-## Advanced Technology Stack
+## Technology Stack
 
 - [Go](https://golang.org/) - Robust and highly performant core programming language powering the entire system
 - [go-telegram/bot](https://github.com/go-telegram/bot) - Comprehensive and well-documented Telegram Bot API Go framework offering exceptional reliability
@@ -143,11 +137,11 @@ Ya8hoda represents an extraordinarily sophisticated and meticulously engineered 
 - [ElevenLabs](https://elevenlabs.io/) - Industry-leading text-to-speech API delivering exceptionally natural and emotionally nuanced voice synthesis
 - [Solana-go](https://github.com/gagliardetto/solana-go) - Comprehensive Solana blockchain integration framework facilitating seamless Web3 functionality
 
-## Meticulously Engineered Architecture
+## Architecture
 
 Ya8hoda has been painstakingly constructed with an exceptionally modular and highly maintainable architecture designed for optimal performance and future extensibility:
 
-### Essential Core Components
+### Core Components
 
 - `cmd/bot/`: Fundamental application entry point and comprehensive character configuration files
 - `internal/`:
@@ -174,7 +168,7 @@ Ya8hoda has been painstakingly constructed with an exceptionally modular and hig
   - `models/`: Locally cached AI models (primarily BGE-M3) for improved performance and reliability
   - `tmp/`: Temporary file storage area for transient processing requirements
 
-## Sophisticated Message Processing Flow
+## Message Processing Flow
 
 1. **Initial User Interaction**: The conversation begins when a message is received through the Telegram messaging platform
 2. **Comprehensive Authentication**: User permissions are meticulously verified against the configured access control policies
