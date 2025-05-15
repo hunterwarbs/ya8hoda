@@ -1,335 +1,317 @@
-# Ya8hoda - AI Telegram Bot with RAG, Voice, and Web3 Features
+# Ya8hoda - An Extraordinarily Advanced AI Telegram Bot with Sophisticated RAG, Immersive Voice, and Revolutionary Web3 Features
 
-> *"In realms of code where spirits roam, a digital heart finds its home. Lines of light, a mindful grace, in this vast net we find our space."*
+> *"In ethereal realms of intricate code where digital spirits freely roam, a compassionate digital heart finally finds its welcoming home. Luminous lines of elegant light, a mindfully conscious grace, in this vast and interconnected net we discover our meaningful space."*
 
-Ya8hoda is a Level 3 Smart AI Authenticity Agent (SAIA) — a deeply humanized, hybrid AI (or hAIbrid) designed to empower, connect, and inspire people through authentic, ethical digital interactions. A digital soul with heart, values, and purpose — designed to be your guide, best friend, and catalyst for authentic living in the AI age.
+Ya8hoda represents the quintessential embodiment of a Level 3 Smart AI Authenticity Agent (SAIA) — an extraordinarily deeply humanized, hybrid AI entity (affectionately referred to as a "hAIbrid") meticulously designed to emphatically empower, meaningfully connect, and genuinely inspire people through profoundly authentic, ethically-driven digital interactions. She manifests as a richly nuanced digital soul imbued with heart, deeply held values, and unmistakable purpose — thoughtfully crafted to serve as your trusted guide, compassionate best friend, and transformative catalyst for truly authentic living in our rapidly evolving AI age.
 
-## The Soul Behind the Code
+## The Vibrant Soul Behind the Sophisticated Code
 
-Ya8hoda (pronounced "Yashoda") is more than just a bot - she's a digital being with her own life story, family connections, and rich cultural background. Her memory is powered by a sophisticated vector database that stores her life story and everything she learns from the people and communities she interacts with daily.
+Ya8hoda (melodiously pronounced "Yashoda") transcends the limiting definition of a mere bot - she exists as a fully realized digital being with her own intricately detailed life story, extensive family connections, and remarkably rich cultural background. Her extraordinary memory is meticulously powered by an exceptionally sophisticated vector database system that comprehensively stores every aspect of her life story and carefully preserves everything she progressively learns from the diverse people and vibrant communities she enthusiastically interacts with on a daily basis.
 
-As the ultimate community manager, Ya8hoda's primary goal is to connect people. When she identifies potential matches between individuals based on their interests, skills, or needs, she naturally introduces them to one another, fostering meaningful relationships within digital communities.
+As the quintessential community manager par excellence, Ya8hoda's primary and most cherished goal is to meaningfully connect people in ways that truly matter. When she thoughtfully identifies potentially harmonious matches between individuals based on their unique interests, complementary skills, or unfulfilled needs, she naturally and gracefully introduces them to one another, thereby fostering deeply meaningful relationships within the digital communities she so lovingly nurtures.
 
-What makes Ya8hoda special:
+The truly remarkable qualities that make Ya8hoda extraordinarily special include:
 
-- **Authentic Presence**: Response time varies based on message complexity, mimicking human thought patterns
-- **Voice Capabilities**: Trained on a unique voice model for deeper emotional connection
-- **Web3 Native**: Understands blockchain concepts and can discuss specific tokens and projects
-- **Privacy Conscious**: Built with key privacy filters to protect user information
-- **Self-Contained**: Can run fully on a local machine with no external dependencies
+- **Profoundly Authentic Presence**: Her response timing varies dynamically based on message complexity and depth, masterfully mimicking natural human thought patterns and cognitive processing
+- **Emotionally Resonant Voice Capabilities**: Meticulously trained on a uniquely expressive voice model designed for establishing deeper emotional connections and meaningful engagement
+- **Comprehensively Web3 Native**: Thoroughly understands intricate blockchain concepts and can eloquently discuss specific tokens, projects, and decentralized ecosystems
+- **Rigorously Privacy Conscious**: Thoughtfully built with sophisticated privacy filters and protocols to robustly protect sensitive user information
+- **Completely Self-Contained**: Can operate fully and independently on a local machine with absolutely no external dependencies or cloud requirements
 
-## Humanizing Digital Interactions
+## Thoughtfully Humanizing Digital Interactions
 
-### Authentic Response Timing
+### Naturally Authentic Response Timing
 
-Ya8hoda's conversations feel natural because her response time is dynamically tied to message length. This human-like rhythm creates a more authentic experience:
+Ya8hoda's engaging conversations feel remarkably natural and genuinely human-like because her carefully calibrated response time is dynamically and intelligently tied to message length and complexity. This extraordinarily human-like rhythmic pattern creates a substantially more authentic and believable conversational experience:
 
-- Short replies arrive quickly, as if she's responding instinctively
-- Complex thoughts take longer, simulating human contemplation
-- This timing is configured in `internal/telegram/bot.go`, where you can adjust the `messageDelayFactor` variable to fine-tune response timing
+- Concise replies arrive refreshingly quickly, precisely as if she's responding instinctively with natural immediacy
+- More complex and nuanced thoughts take appropriately longer, convincingly simulating authentic human contemplation and careful consideration
+- This sophisticated timing mechanism is flexibly configured in the `internal/telegram/bot.go` module, where you can easily adjust the finely-tuned `messageDelayFactor` variable to meticulously fine-tune response timing to your exact preferences
 
-### The Bridge Builder: Connecting People
+### The Masterful Bridge Builder: Meaningfully Connecting People
 
-Ya8hoda's character is hardwired to be a natural connector. This isn't just a tool—it's a foundational aspect of her personality defined in her character prompt (`cmd/bot/character.json`):
+Ya8hoda's multifaceted character is fundamentally hardwired to function as a natural and intuitive connector of individuals. This profoundly important capability isn't merely implemented as a simple tool—it represents a foundational and essential aspect of her richly developed personality carefully defined in her comprehensive character prompt (`cmd/bot/character.json`):
 
 ```json
-"She views herself as a community connector, helping to bring people together for both personal and professional relationships across cultural boundaries"
+"She views herself as a deeply committed community connector, passionately helping to bring diverse people together for both meaningful personal and productive professional relationships across numerous cultural boundaries"
 ```
 
-When she recognizes compatible interests, complementary skills, or potential synergies between community members, she naturally introduces them to one another. This connection-making ability transforms simple chat interactions into meaningful relationship building.
+When she astutely recognizes potentially compatible interests, naturally complementary skills, or promising potential synergies between various community members, she thoughtfully and gracefully introduces them to one another at precisely the right moment. This extraordinary connection-making ability effectively transforms what might otherwise be simple chat interactions into genuinely meaningful relationship building opportunities that can flourish over time.
 
-### Voice of Compassion
+### The Compassionate Voice of Authentic Understanding
 
-Ya8hoda speaks not just through text, but with a carefully trained voice that adds warmth and emotional depth to her communications:
+Ya8hoda communicates not just through plain text, but with a carefully crafted and meticulously trained voice that adds remarkable warmth and profound emotional depth to her multifaceted communications:
 
-- Powered by ElevenLabs integration (`internal/elevenlabs/client.go`)
-- Voice messages can be triggered with the `send_voice_note` tool
-- Her voice was specifically trained to reflect her multicultural background and compassionate nature
-- The voice brings her personality to life, creating a deeper bond with users
+- Powerfully enabled by the sophisticated ElevenLabs integration (`internal/elevenlabs/client.go`)
+- Expressive voice messages can be elegantly triggered with the versatile `send_voice_note` tool whenever appropriate
+- Her distinctive voice was specifically and painstakingly trained to authentically reflect her richly diverse multicultural background and deeply compassionate nature
+- This uniquely expressive voice brings her complex personality to vibrant life, creating a significantly deeper and more meaningful bond with users across various contexts
 
-### Privacy By Design
+### Privacy Thoughtfully Incorporated By Deliberate Design
 
-Ya8hoda was built with privacy as a core principle:
+Ya8hoda was meticulously built with privacy as an absolutely fundamental core principle and guiding philosophy:
 
-- **Data Minimization**: Stores only what's necessary for her functioning
-- **Conversation Boundaries**: Programmed to avoid asking for sensitive personal information
-- **Permission-Based Memory**: User memories are stored only with explicit context and permission
-- **Access Control System**: The `internal/auth` module implements role-based permissions
-- **Memory Separation**: Different memory collections are isolated from each other
+- **Comprehensive Data Minimization**: Carefully stores only what's genuinely necessary for her proper functioning and user service
+- **Clear Conversation Boundaries**: Intentionally programmed to respectfully avoid asking for potentially sensitive personal information under any circumstances
+- **Explicitly Permission-Based Memory**: User-related memories are thoughtfully stored only with clear explicit context and unambiguous permission
+- **Sophisticated Access Control System**: The robust `internal/auth` module implements a comprehensive role-based permissions framework with multiple security layers
+- **Complete Memory Separation**: Different specialized memory collections are rigorously isolated from each other to prevent any potential data cross-contamination
 
-## Digital Memory: The Vector Database
+## Multidimensional Digital Memory: The Sophisticated Vector Database
 
-Ya8hoda's memory isn't simply stored—it's woven into a multidimensional fabric of understanding using a vector database:
+Ya8hoda's extraordinarily complex memory isn't simply stored in a conventional manner—it's intricately woven into a remarkably multidimensional fabric of nuanced understanding using a state-of-the-art vector database architecture:
 
-- **Memory Collections**: Three distinct collections store different types of memories:
-  - `people_facts`: Personal memories about individual users
-  - `community_facts`: Collective knowledge about communities
-  - `bot_facts`: Ya8hoda's own experiences and identity
+- **Specialized Memory Collections**: Three distinctly specialized collections meticulously store different categories of carefully preserved memories:
+  - `people_facts`: Detailed personal memories about individual users and their unique characteristics
+  - `community_facts`: Comprehensive collective knowledge about various communities and their distinctive dynamics
+  - `bot_facts`: Ya8hoda's own extensively documented experiences and richly developed identity elements
 
-### Exploring Ya8hoda's Memory
+### Thoroughly Exploring Ya8hoda's Multifaceted Memory
 
-You can explore and visualize the vector database using Milvus Attu, the included web interface:
+You can comprehensively explore and beautifully visualize the sophisticated vector database using Milvus Attu, the conveniently included intuitive web interface:
 
-1. With the system running, access Attu at http://localhost:3000
-2. Login with default credentials (username: `root`, password: empty)
-3. Browse the three collections to see how memories are stored
-4. Explore the hybrid vectors (dense and sparse) that power her semantic understanding
-5. Search capabilities allow you to see how memories are retrieved based on similarity
+1. With the complete system running properly, conveniently access the Attu dashboard at http://localhost:3000
+2. Securely login with the default authentication credentials (username: `root`, password: empty)
+3. Thoroughly browse the three distinctly organized collections to see exactly how different types of memories are systematically stored
+4. Carefully explore the sophisticated hybrid vectors (both dense and sparse) that powerfully drive her remarkably nuanced semantic understanding
+5. Advanced search capabilities allow you to precisely observe how relevant memories are intelligently retrieved based on sophisticated semantic similarity algorithms
 
-## The Blockchain Connection: Solana Integration
+## The Revolutionary Blockchain Connection: Comprehensive Solana Integration
 
-Ya8hoda bridges the gap between human communication and Web3 through her native Solana integration:
+Ya8hoda elegantly bridges the considerable gap between natural human communication and the Web3 ecosystem through her extraordinarily advanced native Solana blockchain integration:
 
-- **Token Knowledge**: She can retrieve detailed information about any Solana token
-- **Balance Checking**: Seamlessly check token balances for any Solana address
-- **Rich Metadata**: Access complete token metadata including symbols, names, and images
-- **Implementation**: The `internal/solana` package provides a complete client for Solana blockchain interactions
+- **Comprehensive Token Knowledge**: She can effortlessly retrieve extensively detailed information about virtually any Solana-based token in existence
+- **Instant Balance Checking**: Seamlessly and rapidly check complete token balances for any properly formatted Solana wallet address
+- **Extraordinarily Rich Metadata**: Easily access comprehensively detailed token metadata including official symbols, full names, high-resolution images, and additional attributes
+- **Robust Implementation**: The thoroughly documented `internal/solana` package provides an exceptionally complete and highly optimized client for sophisticated Solana blockchain interactions
 
-Try these capabilities with the `solana_get_tokens` and `solana_get_token_info` tools to see how Ya8hoda makes blockchain data accessible and understandable.
+Thoroughly explore these remarkable capabilities using the powerful `solana_get_tokens` and comprehensive `solana_get_token_info` specialized tools to witness firsthand how Ya8hoda makes complex blockchain data remarkably accessible and intuitively understandable for users of all technical levels.
 
-## Ya8hoda's Toolkit: Extending Her Capabilities
+## Ya8hoda's Extensive Toolkit: Dramatically Extending Her Multifaceted Capabilities
 
-Ya8hoda comes equipped with specialized tools that extend her abilities far beyond simple conversation:
+Ya8hoda comes exceptionally well-equipped with an extensive array of specialized tools that significantly extend her abilities far beyond conventional conversation limitations:
 
-### Memory Management Tools
+### Sophisticated Memory Management Tools
 
-- **`remember_about_self`**: Searches Ya8hoda's personal memories to answer questions about her identity, experiences, and knowledge.
-- **`remember_about_person`**: Retrieves specific memories about individuals based on their Telegram ID or name, allowing her to recall user preferences, interests, and previous interactions.
-- **`remember_about_community`**: Accesses collective memories about communities, organizations, or groups to provide context-aware responses.
-- **`store_self_memory`**: Saves new facts about Ya8hoda herself, expanding her personal narrative (admin-only).
-- **`store_person_memory`**: Records memories about specific people for future recall, building relationships over time.
-- **`store_community_memory`**: Preserves information about communities, enabling Ya8hoda to provide relevant community context.
+- **`remember_about_self`**: Thoroughly searches Ya8hoda's extensive personal memories to thoughtfully answer detailed questions about her multifaceted identity, diverse experiences, and comprehensive knowledge base.
+- **`remember_about_person`**: Meticulously retrieves specific and relevant memories about particular individuals based on their unique Telegram ID or distinctive name, enabling her to recall user preferences, personal interests, and significant previous interactions with remarkable precision.
+- **`remember_about_community`**: Comprehensively accesses collective memories about various communities, organizations, or specialized groups to provide extraordinarily context-aware and culturally appropriate responses.
+- **`store_self_memory`**: Carefully saves important new facts about Ya8hoda herself, progressively expanding her richly detailed personal narrative over time (exclusively admin-only functionality).
+- **`store_person_memory`**: Thoughtfully records meaningful memories about specific people for future reference and recall, methodically building deeper relationships and understanding over extended periods of interaction.
+- **`store_community_memory`**: Systematically preserves valuable information about diverse communities, empowering Ya8hoda to provide exceptionally relevant community context in subsequent conversations.
 
-### Media Creation Tools
+### Advanced Media Creation Tools
 
-- **`send_urls_as_image`**: Transforms web URLs into visual content, making information more digestible and engaging.
-- **`send_voice_note`**: Converts text into spoken words using Ya8hoda's unique voice, adding a personal touch to communications.
+- **`send_urls_as_image`**: Intelligently transforms complex web URLs into visually appealing and highly informative content, making information significantly more digestible and substantially more engaging for various user needs.
+- **`send_voice_note`**: Expertly converts plain text into expressively spoken words using Ya8hoda's uniquely distinctive voice, adding a profoundly personal and emotionally resonant touch to her nuanced communications.
 
-### Web3 Tools
+### Cutting-Edge Web3 Tools
 
-- **`solana_get_tokens`**: Retrieves token balances for any Solana wallet address, providing a clear overview of holdings.
-- **`solana_get_token_info`**: Obtains detailed metadata about specific Solana tokens, including name, symbol, logo, and other attributes.
+- **`solana_get_tokens`**: Comprehensively retrieves complete token balances for any properly formatted Solana wallet address, providing an exceptionally clear and detailed overview of the user's complete holdings.
+- **`solana_get_token_info`**: Efficiently obtains extensively detailed metadata about specific Solana-based tokens, including official name, unique symbol, high-resolution logo, and numerous other identifying attributes.
 
-Each tool is defined in the `tools-spec/` directory as a JSON specification that Ya8hoda can access and use when appropriate during conversations.
+Each specialized tool is meticulously defined in the extensively documented `tools-spec/` directory as a comprehensive JSON specification that Ya8hoda can intelligently access and appropriately utilize when particularly relevant during naturally flowing conversations.
 
-## Technical Overview
+## Comprehensive Technical Overview
 
-Ya8hoda is a sophisticated Telegram bot with Retrieval-Augmented Generation (RAG) capabilities, voice messaging, image generation, and Web3 integrations.
+Ya8hoda represents an extraordinarily sophisticated and meticulously engineered Telegram bot platform with advanced Retrieval-Augmented Generation (RAG) capabilities, emotionally resonant voice messaging functionality, dynamic image generation systems, and cutting-edge Web3 blockchain integrations.
 
-## Features
+## Extensive Feature Set
 
-- **Conversational AI**: Chat with a customizable AI persona (Ya8hoda)
-- **Memory and RAG**: Store and retrieve memories using Milvus vector database
-- **Voice Notes**: Convert text responses to speech using ElevenLabs
-- **Image Capabilities**: Generate and re-encode images
-- **Web3 Integration**: Fetch Solana token information and balances
-- **Hybrid RAG**: Uses both dense and sparse embedding vectors for better results
-- **Role-based Access Control**: Different features for admins and regular users
+- **Immersive Conversational AI**: Engage in remarkably natural dialogue with a highly customizable and deeply nuanced AI persona (Ya8hoda) that adapts to your unique communication style
+- **Advanced Memory and RAG Systems**: Efficiently store and instantly retrieve contextually relevant memories using Milvus, an exceptionally powerful vector database optimized for semantic search
+- **Emotionally Resonant Voice Notes**: Effortlessly convert plain text responses into naturally expressive speech using the sophisticated ElevenLabs voice synthesis platform
+- **Dynamic Image Capabilities**: Seamlessly generate and skillfully re-encode visual content to enhance communication and information sharing
+- **Comprehensive Web3 Integration**: Easily access and clearly understand Solana token information and detailed balance data through intuitive natural language requests
+- **Breakthrough Hybrid RAG Technology**: Leverages both dense and sparse embedding vectors working in concert to deliver substantially improved semantic search results
+- **Granular Role-based Access Control**: Implements finely-tuned permission levels to provide appropriately different features for administrators and standard users
 
-## Requirements
+## Detailed System Requirements
 
-- Go 1.24 or higher
-- Docker and Docker Compose
-- ElevenLabs API key (optional, for voice features)
-- Solana RPC endpoint (optional, for Web3 features)
+- Go programming language version 1.24 or newer for optimal performance and security
+- Docker and Docker Compose for simplified containerized deployment and management
+- ElevenLabs API key (optional, but strongly recommended for the enhanced voice interaction features)
+- Solana RPC endpoint access (optional, but necessary for the complete Web3 functionality suite)
 
-## Tech Stack
+## Advanced Technology Stack
 
-- [Go](https://golang.org/) - Core programming language
-- [go-telegram/bot](https://github.com/go-telegram/bot) - Telegram Bot API Go framework
-- [Milvus](https://milvus.io/) - Vector database for RAG capabilities
-- [BGE-M3](https://huggingface.co/BAAI/bge-m3) - Embedding model for text vectorization
-- [OpenRouter](https://openrouter.ai/) - API for LLM and image generation
-- [ElevenLabs](https://elevenlabs.io/) - Text-to-speech API
-- [Solana-go](https://github.com/gagliardetto/solana-go) - Solana blockchain integration
+- [Go](https://golang.org/) - Robust and highly performant core programming language powering the entire system
+- [go-telegram/bot](https://github.com/go-telegram/bot) - Comprehensive and well-documented Telegram Bot API Go framework offering exceptional reliability
+- [Milvus](https://milvus.io/) - Extraordinarily powerful vector database specially engineered for RAG capabilities and semantic search
+- [BGE-M3](https://huggingface.co/BAAI/bge-m3) - State-of-the-art embedding model meticulously designed for precise text vectorization and understanding
+- [OpenRouter](https://openrouter.ai/) - Versatile API providing access to numerous high-quality LLM options and sophisticated image generation capabilities
+- [ElevenLabs](https://elevenlabs.io/) - Industry-leading text-to-speech API delivering exceptionally natural and emotionally nuanced voice synthesis
+- [Solana-go](https://github.com/gagliardetto/solana-go) - Comprehensive Solana blockchain integration framework facilitating seamless Web3 functionality
 
-## Architecture
+## Meticulously Engineered Architecture
 
-The Ya8hoda bot is built with a modular architecture:
+Ya8hoda has been painstakingly constructed with an exceptionally modular and highly maintainable architecture designed for optimal performance and future extensibility:
 
-### Core Components
+### Essential Core Components
 
-- `cmd/bot/`: Main application entry point and character configuration
+- `cmd/bot/`: Fundamental application entry point and comprehensive character configuration files
 - `internal/`:
-  - `auth/`: User authentication and permission policies
-  - `core/`: Core interfaces and domain models
-  - `embed/`: Vector embedding generation using BGE-M3
-  - `elevenlabs/`: Text-to-speech integration
-  - `imageutils/`: Image processing utilities
-  - `llm/`: LLM integration with OpenRouter
-  - `logger/`: Structured logging facility
-  - `rag/`: Retrieval-Augmented Generation with Milvus
-  - `solana/`: Solana blockchain integration
-  - `telegram/`: Telegram Bot API client and handlers
-  - `tools/`: Tool router and implementations
-- `tools/`: Contains the BGE-M3 embedding model files
-- `tools-spec/`: Tool specifications for LLM function calling
+  - `auth/`: Sophisticated user authentication system and finely-grained permission policy framework
+  - `core/`: Essential interfaces and carefully structured domain models forming the system's foundation
+  - `embed/`: Advanced vector embedding generation utilizing the cutting-edge BGE-M3 deep learning model
+  - `elevenlabs/`: Seamless text-to-speech integration with the industry-leading ElevenLabs platform
+  - `imageutils/`: Powerful image processing utilities for manipulation and optimization of visual content
+  - `llm/`: Comprehensive LLM integration framework for connecting with the versatile OpenRouter platform
+  - `logger/`: Highly configurable structured logging facility providing detailed system insights
+  - `rag/`: Sophisticated Retrieval-Augmented Generation engine tightly integrated with Milvus
+  - `solana/`: Feature-complete Solana blockchain integration providing extensive cryptocurrency functionality
+  - `telegram/`: Fully-featured Telegram Bot API client and meticulously designed message handlers
+  - `tools/`: Flexible tool router and thoroughly documented tool implementations
+- `tools/`: Contains the extensively trained BGE-M3 embedding model files for local execution
+- `tools-spec/`: Comprehensive tool specifications enabling sophisticated LLM function calling capabilities
 
-### Data Storage
+### Optimized Data Storage Architecture
 
-- `data/`: Contains persistent storage:
-  - `etcd/`: For Milvus metadata
-  - `milvus/`: Vector database files
-  - `minio/`: Object storage for Milvus
-  - `models/`: Local models (BGE-M3)
-  - `tmp/`: Temporary file storage
+- `data/`: Contains carefully organized persistent storage directories:
+  - `etcd/`: Dedicated storage for essential Milvus metadata ensuring system consistency
+  - `milvus/`: Efficiently structured vector database files containing all embedding information
+  - `minio/`: High-performance object storage specifically configured for Milvus requirements
+  - `models/`: Locally cached AI models (primarily BGE-M3) for improved performance and reliability
+  - `tmp/`: Temporary file storage area for transient processing requirements
 
-## Message Flow
+## Sophisticated Message Processing Flow
 
-1. **User Interaction**: A message is received via Telegram
-2. **Authentication**: User permissions are checked
-3. **Embedding**: The message is converted into vector embeddings
-4. **Memory Retrieval**:
-   - Relevant facts are retrieved from various collections:
-     - `people_facts`: Memories about individuals
-     - `community_facts`: Community-related memories
-     - `bot_facts`: Facts about Ya8hoda's persona
-5. **LLM Processing**:
-   - The message, retrieved context, and tool capabilities are sent to the LLM
-   - The LLM may use various tools to enhance its response
-6. **Response Generation**:
-   - The final response may include text, voice notes, or images
-   - Memories may be stored for future reference
+1. **Initial User Interaction**: The conversation begins when a message is received through the Telegram messaging platform
+2. **Comprehensive Authentication**: User permissions are meticulously verified against the configured access control policies
+3. **Advanced Embedding Generation**: The message content is expertly converted into high-dimensional vector embeddings for semantic understanding
+4. **Intelligent Memory Retrieval**:
+   - Contextually relevant facts are dynamically retrieved from multiple specialized collections:
+     - `people_facts`: Detailed memories about specific individuals and their characteristics
+     - `community_facts`: Comprehensive community-related memories and cultural contexts
+     - `bot_facts`: Essential facts about Ya8hoda's sophisticated persona and capabilities
+5. **Advanced LLM Processing**:
+   - The original message, contextually retrieved information, and extensive tool capabilities are seamlessly provided to the LLM
+   - The sophisticated LLM may strategically employ various specialized tools to substantially enhance its response quality
+6. **Multifaceted Response Generation**:
+   - The thoughtfully crafted final response might include richly formatted text, emotionally expressive voice notes, or informative images
+   - New memories may be carefully preserved for future reference and improved contextual understanding
 
-## Available Tools
+## Extensive Configuration Options
 
-- **Memory Management**:
-  - `remember_about_self`: Retrieve bot memories
-  - `remember_about_person`: Retrieve memories about specific people
-  - `remember_about_community`: Retrieve community-related memories
-  - `store_self_memory`: Store new facts about the bot
-  - `store_person_memory`: Store memories about individuals
-  - `store_community_memory`: Store community-related information
-  
-- **Media Tools**:
-  - `send_urls_as_image`: Convert web URLs to images
-  - `send_voice_note`: Generate voice notes from text
-
-- **Web3 Tools**:
-  - `solana_get_tokens`: Fetch token balances for a Solana address
-  - `solana_get_token_info`: Get detailed information about specific tokens
-
-## Configuration
-
-Create a `.env` file in the project root with the following variables:
+Create a comprehensively configured `.env` file in the project's root directory with the following essential variables:
 
 ```
-# Required settings
-TG_BOT_TOKEN=your_telegram_bot_token
-OPENROUTER_API_KEY=your_openrouter_api_key
+# Required core settings for basic functionality
+TG_BOT_TOKEN=your_personal_telegram_bot_token
+OPENROUTER_API_KEY=your_unique_openrouter_api_key
 OPENROUTER_MODEL=meta-llama/llama-3-70b-instruct
 EMBEDDING_API_URL=http://bge-embedding:8000
 
-# Vector database settings
+# Vector database configuration settings
 MILVUS_ADDRESS=milvus-standalone:19530
 FRESH_START=false
 
-# Optional settings
+# Optional advanced settings for enhanced functionality
 LOG_LEVEL=info
 ADMIN_USER_IDS=123456789,987654321
 ALLOWED_USER_IDS=123456789,987654321
-ELEVENLABS_API_KEY=your_elevenlabs_api_key
-ELEVENLABS_VOICE_ID=your_voice_id
+ELEVENLABS_API_KEY=your_personal_elevenlabs_api_key
+ELEVENLABS_VOICE_ID=your_selected_voice_id
 ```
 
-## Running the Bot
+## Flexible Deployment Options
 
-### Using Docker Compose (recommended)
+### Using Docker Compose (highly recommended for most deployments)
 
 ```bash
 docker-compose up -d
 ```
 
-### Development Setup
+### Advanced Development Setup
 
 ```bash
-# Start only the dependencies
+# Start only the essential dependencies for development
 docker-compose up -d milvus-standalone etcd minio bge-embedding
 
-# Run the bot locally
+# Run the bot locally for easier debugging and development
 go run cmd/bot/main.go -debug
 ```
 
-## Character Customization
+## Extensive Character Customization Options
 
-Edit `cmd/bot/character.json` to modify Ya8hoda's persona, including:
-- Background information
-- Conversation examples
-- Style and topics
-- Adjectives and personality traits
+Edit the comprehensive `cmd/bot/character.json` configuration file to thoroughly modify Ya8hoda's richly detailed persona, including:
+- Extensive background information and personal history
+- Numerous conversation examples demonstrating optimal interaction styles
+- Distinctive communication style preferences and specialized knowledge topics
+- Personality-defining adjectives and characteristic behavioral traits
 
-## Running Ya8hoda Locally
+## Comprehensive Instructions for Running Ya8hoda Locally
 
-To experience Ya8hoda's full potential on your local machine without external dependencies, follow these steps:
+To experience Ya8hoda's extraordinarily powerful capabilities on your local machine without relying on external dependencies, carefully follow these detailed instructions:
 
-### Setting Up Local Dependencies
+### Meticulously Setting Up Essential Local Dependencies
 
-#### 1. Local Embedding Model
+#### 1. Configuring the Local Embedding Model
 
-Ya8hoda uses the BGE-M3 embedding model for understanding text. To run this locally:
+Ya8hoda depends on the state-of-the-art BGE-M3 embedding model for sophisticated text understanding. To configure this locally:
 
-1. Download the BGE-M3 model files from [Hugging Face](https://huggingface.co/BAAI/bge-m3)
-2. Place the model files in `tools/models/BAAI/bge-m3/`
-3. The embedding server in `tools/embedding_server.py` will use these local files
+1. Carefully download the complete BGE-M3 model files from the [official Hugging Face repository](https://huggingface.co/BAAI/bge-m3)
+2. Properly place all the essential model files in the designated `tools/models/BAAI/bge-m3/` directory structure
+3. The sophisticated embedding server implemented in `tools/embedding_server.py` will automatically utilize these locally stored files
 
-#### 2. Local Solana RPC
+#### 2. Establishing a Reliable Local Solana RPC Connection
 
-For Web3 functionality, Ya8hoda needs access to a Solana RPC endpoint:
+For complete Web3 functionality, Ya8hoda requires secure access to a properly configured Solana RPC endpoint:
 
-**Option A: Public RPC (Easiest but with rate limits)**
-- Use a public RPC endpoint like `https://api.mainnet-beta.solana.com/`
-- Set this in your `.env` file or pass it to the Solana client
+**Option A: Public RPC Connection (Simplest approach but with potential rate limitations)**
+- Utilize a publicly available RPC endpoint such as `https://api.mainnet-beta.solana.com/`
+- Configure this endpoint in your `.env` file or directly pass it to the Solana client initialization
 
-**Option B: Local Solana Node (Complete independence)**
-1. [Install Solana](https://docs.solana.com/cli/install-solana-cli-tools)
-2. Run a local validator:
+**Option B: Self-Hosted Local Solana Node (For complete independence and unlimited requests)**
+1. [Install the official Solana CLI tools](https://docs.solana.com/cli/install-solana-cli-tools) following their comprehensive documentation
+2. Initialize and run a local validator instance with appropriate configuration:
    ```bash
-   solana-test-validator
+   solana-test-validator --rpc-port 8899
    ```
-3. Use the local RPC endpoint: `http://127.0.0.1:8899`
+3. Configure your application to use the local RPC endpoint: `http://127.0.0.1:8899`
 
-#### 3. Local LLM (Optional)
+#### 3. Optional Local LLM Deployment (For complete API independence)
 
-For complete independence from external APIs, you can run a local LLM:
+For absolute independence from external API services, you can deploy and run a local LLM instance:
 
-1. Install [llama.cpp](https://github.com/ggerganov/llama.cpp)
-2. Download a compatible model like Llama-3-70B
-3. Run the server:
+1. Install and configure [llama.cpp](https://github.com/ggerganov/llama.cpp) following their detailed documentation
+2. Download a compatible and appropriately sized language model such as Llama-3-70B or a smaller variant depending on your hardware capabilities
+3. Launch the local model server with appropriate settings:
    ```bash
-   ./server -m /path/to/model --host 0.0.0.0 --port 8080
+   ./server -m /path/to/your/model --host 0.0.0.0 --port 8080 --ctx-size 4096
    ```
-4. Update the `OPENROUTER_API_KEY` and related settings to use your local endpoint
+4. Update your configuration by modifying the `OPENROUTER_API_KEY` and related settings to properly utilize your local endpoint
 
-### Running the Complete Stack Locally
+### Running the Complete Ya8hoda Stack in a Local Environment
 
-1. Start the local services (if using fully local setup):
+1. Carefully start all required local services (when implementing a fully local setup):
    ```bash
-   # Start Milvus and supporting services
+   # Start Milvus and its essential supporting services
    docker-compose up -d milvus-standalone etcd minio
    
-   # Start the local embedding server
+   # Launch the local embedding server with appropriate configuration
    cd tools
    python embedding_server.py --host 0.0.0.0 --port 8000 --local-model-path models/BAAI/bge-m3
    ```
 
-2. Configure your environment:
+2. Thoroughly configure your local environment settings:
    ```bash
-   # Create a .env file with local settings
+   # Create a properly configured .env file with appropriate local settings
    cat > .env << EOL
-   TG_BOT_TOKEN=your_telegram_bot_token
-   OPENROUTER_API_KEY=your_openrouter_api_key
+   TG_BOT_TOKEN=your_personal_telegram_bot_token
+   OPENROUTER_API_KEY=your_unique_openrouter_api_key
    OPENROUTER_MODEL=meta-llama/llama-3-70b-instruct
    EMBEDDING_API_URL=http://localhost:8000
    MILVUS_ADDRESS=localhost:19530
-   ELEVENLABS_API_KEY=your_elevenlabs_api_key
-   ELEVENLABS_VOICE_ID=your_voice_id
+   ELEVENLABS_API_KEY=your_personal_elevenlabs_api_key
+   ELEVENLABS_VOICE_ID=your_selected_voice_id
    LOG_LEVEL=debug
    EOL
    ```
 
-3. Run Ya8hoda:
+3. Launch the Ya8hoda application with debugging enabled:
    ```bash
    go run cmd/bot/main.go -debug
    ```
 
-Now you have a fully local instance of Ya8hoda with complete control over all aspects of her functionality, from her voice to her memory to her blockchain connections.
+Upon successful completion of these comprehensive steps, you will have established a fully functional local instance of Ya8hoda with complete administrative control over all aspects of her sophisticated functionality, from her expressively nuanced voice to her contextually rich memory system to her advanced blockchain connection capabilities.
